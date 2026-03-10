@@ -7,7 +7,17 @@
       "Bash(find node_modules/@electron-toolkit -name \"*.d.ts\" 2>/dev/null | head -10)",
       "Bash(cd D:/workspace/frp-studio && pnpm list 2>&1 | grep -i proxy)",
       "Bash(cd D:/workspace/frp-studio && pnpm add https-proxy-agent 2>&1 | tail -5)",
-      "Bash(./node_modules/.bin/electron scripts/convert-icon.js 2>&1)"
+      "Bash(./node_modules/.bin/electron scripts/convert-icon.js 2>&1)",
+      "Bash(cd D:/workspace/frp-studio && ./node_modules/.bin/electron scripts/convert-icon.js 2>&1)",
+      "Bash(cd D:/workspace/frp-studio && ./node_modules/.bin/electron scripts/convert-icon.js)",
+      "Bash(find D:/workspace/frp-studio/node_modules -name \"rcedit.exe\" 2>/dev/null; find D:/workspace/frp-studio/node_modules -path \"*rcedit*\" -name \"*.exe\" 2>/dev/null | head -5)",
+      "Bash(find D:/workspace/frp-studio/node_modules/.pnpm -name \"rcedit*\" 2>/dev/null | head -10)",
+      "Bash(find D:/workspace/frp-studio/node_modules -name \"app-builder*\" -maxdepth 6 2>/dev/null | grep -E \"\\\\.\\(exe|bin\\)$\" | head -5)",
+      "Bash(where rcedit:*)",
+      "Bash(npm list:*)",
+      "Bash(cd D:/workspace/frp-studio && pnpm add -D rcedit 2>&1 | tail -5)",
+      "Bash(cd D:/workspace/frp-studio && node -e \"\nconst rcedit = require\\('rcedit'\\);\nrcedit\\('dist/win-unpacked/Frper.exe', { icon: 'resources/icon.ico' }\\)\n  .then\\(\\(\\) => console.log\\('rcedit OK'\\)\\)\n  .catch\\(e => console.error\\('rcedit FAIL:', e.message\\)\\)\n\")",
+      "Bash(cd D:/workspace/frp-studio && node -e \"const r = require\\('rcedit'\\); console.log\\(typeof r, Object.keys\\(r\\)\\)\")"
     ]
   }
 }

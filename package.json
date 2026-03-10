@@ -46,9 +46,14 @@
         "to": "resources/"
       }
     ],
+    "afterPack": "./scripts/afterPack.js",
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
     "win": {
-      "target": "dir",
-      "signAndEditExecutable": false
+      "icon": "resources/icon.ico",
+      "target": "nsis"
     },
     "mac": {
       "target": "dmg"
@@ -78,6 +83,7 @@
     "eslint": "^9.17.0",
     "eslint-plugin-vue": "^9.32.0",
     "prettier": "^3.4.2",
+    "rcedit": "^5.0.2",
     "typescript": "^5.7.3",
     "unplugin-auto-import": "^0.18.6",
     "unplugin-vue-components": "^0.27.5",
