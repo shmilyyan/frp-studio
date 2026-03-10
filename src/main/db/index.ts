@@ -2,7 +2,7 @@ import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import initSqlJs, { Database } from 'sql.js'
-import { CREATE_TABLES_SQL, MIGRATE_SQL, NodeRow, TunnelRow } from './schema'
+import { CREATE_TABLES_SQL, MIGRATIONS, NodeRow, TunnelRow } from './schema'
 
 let db: Database | null = null
 let dbPath: string
@@ -22,14 +22,12 @@ export async function initDatabase(): Promise<void> {
 
   db.run(CREATE_TABLES_SQL)
 
-  // 迁移：检查 group_name 列是否存在
-  const cols = db.exec(`PRAGMA table_info(tunnels)`)
-  const colNames = cols[0]?.values?.map((r) => r[1] as string) ?? []
-  if (!colNames.includes('group_name')) {
+  // 迁移：逐条执行，已存在则忽略
+  for (const sql of MIGRATIONS) {
     try {
-      db.run(MIGRATE_SQL)
+      db.run(sql)
     } catch {
-      // 已存在则忽略
+      // 列已存在则忽略
     }
   }
 
@@ -133,7 +131,7 @@ export function listGroups(): string[] {
 export function addTunnel(data: Omit<TunnelRow, 'id' | 'created_at'>): TunnelRow {
   const db = getDb()
   db.run(
-    'INSERT INTO tunnels (node_id, name, type, local_ip, local_port, remote_port, custom_domain, enabled, group_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO tunnels (node_id, name, type, local_ip, local_port, remote_port, custom_domain, enabled, group_name, extra_attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [
       data.node_id,
       data.name,
@@ -143,7 +141,8 @@ export function addTunnel(data: Omit<TunnelRow, 'id' | 'created_at'>): TunnelRow
       data.remote_port ?? null,
       data.custom_domain ?? null,
       data.enabled ?? 1,
-      data.group_name || '默认分组'
+      data.group_name || '默认分组',
+      data.extra_attrs || '{}'
     ]
   )
   saveDatabase()

@@ -2,12 +2,13 @@ import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { initDatabase } from './db'
-import { initConfig } from './config'
+import { initConfig, getConfig, setConfig } from './config'
 import { registerNodeHandlers } from './ipc/node'
 import { registerTunnelHandlers } from './ipc/tunnel'
 import { registerSystemHandlers } from './ipc/system'
 import { handleWindowClose, refreshTrayMenu } from './tray'
 import { frpcManager } from './frpc'
+import { checkFrpExists, autoDownloadLatest, getLatestVersion, getInstalledFrpVersion } from './downloader'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -68,8 +69,58 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
+let updateCheckTimer: ReturnType<typeof setInterval> | null = null
+
+async function performUpdateCheck(win: BrowserWindow): Promise<void> {
+  try {
+    const currentVersion = getInstalledFrpVersion()
+    const latest = await getLatestVersion()
+    if (!latest) return
+
+    setConfig({ lastUpdateCheck: Date.now(), latestKnownVersion: latest.version })
+
+    const hasUpdate =
+      !!currentVersion &&
+      currentVersion !== 'unknown' &&
+      latest.version !== currentVersion
+
+    if (hasUpdate && !win.isDestroyed()) {
+      win.webContents.send('system:update-available', {
+        latestVersion: latest.version,
+        currentVersion
+      })
+    }
+  } catch { /* network errors are silently ignored */ }
+}
+
+async function startFrpcAutoManagement(win: BrowserWindow): Promise<void> {
+  // Auto-download frpc if missing
+  if (!checkFrpExists()) {
+    try {
+      await autoDownloadLatest(win)
+    } catch { /* ignore, user can manually install */ }
+  }
+
+  const cfg = getConfig()
+  if (!cfg.autoCheckUpdate) return
+
+  // Check on startup if interval has elapsed
+  const now = Date.now()
+  const intervalMs = cfg.updateCheckInterval * 60 * 60 * 1000
+  if (!cfg.lastUpdateCheck || now - cfg.lastUpdateCheck >= intervalMs) {
+    performUpdateCheck(win)
+  }
+
+  // Schedule recurring checks
+  if (updateCheckTimer) clearInterval(updateCheckTimer)
+  updateCheckTimer = setInterval(() => {
+    const current = getConfig()
+    if (current.autoCheckUpdate) performUpdateCheck(win)
+  }, intervalMs)
+}
+
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.frpstudio')
+  electronApp.setAppUserModelId('com.frper')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -86,6 +137,11 @@ app.whenReady().then(async () => {
 
   // frpc 状态变化时刷新托盘菜单
   frpcManager.onStatusChange(() => refreshTrayMenu(win))
+
+  // After renderer is ready: auto-detect frpc + schedule update checks
+  win.webContents.on('did-finish-load', () => {
+    startFrpcAutoManagement(win)
+  })
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

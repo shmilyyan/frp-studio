@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx electron-vite:*)",
+      "Bash(npm run:*)",
+      "Bash(pnpm build:*)",
+      "Bash(find node_modules/@electron-toolkit -name \"*.d.ts\" 2>/dev/null | head -10)",
+      "Bash(cd D:/workspace/frp-studio && pnpm list 2>&1 | grep -i proxy)",
+      "Bash(cd D:/workspace/frp-studio && pnpm add https-proxy-agent 2>&1 | tail -5)",
+      "Bash(./node_modules/.bin/electron scripts/convert-icon.js 2>&1)"
+    ]
+  }
+}

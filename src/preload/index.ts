@@ -44,6 +44,10 @@ const api = {
     getInstalledVersion: () => ipcRenderer.invoke('system:get-installed-version'),
     setAutostart: (enabled: boolean) => ipcRenderer.invoke('system:autostart', enabled),
     getAutostart: () => ipcRenderer.invoke('system:get-autostart'),
+    checkUpdate: () => ipcRenderer.invoke('system:check-update'),
+    importFrpc: () => ipcRenderer.invoke('system:import-frpc'),
+    listBackups: () => ipcRenderer.invoke('system:list-backups'),
+    restoreBackup: (filename: string) => ipcRenderer.invoke('system:restore-backup', filename),
     onDownloadProgress: (
       cb: (data: { percent: number; downloaded: number; total: number }) => void
     ) => {
@@ -53,6 +57,16 @@ const api = {
     onDownloadComplete: (cb: (data: { version: string }) => void) => {
       ipcRenderer.on('system:download-complete', (_e, data) => cb(data))
       return () => ipcRenderer.removeAllListeners('system:download-complete')
+    },
+    onUpdateAvailable: (
+      cb: (data: { latestVersion: string; currentVersion: string }) => void
+    ) => {
+      ipcRenderer.on('system:update-available', (_e, data) => cb(data))
+      return () => ipcRenderer.removeAllListeners('system:update-available')
+    },
+    onAutoDownloadStart: (cb: (data: { version: string }) => void) => {
+      ipcRenderer.on('system:auto-download-start', (_e, data) => cb(data))
+      return () => ipcRenderer.removeAllListeners('system:auto-download-start')
     }
   },
   // Global app config
@@ -61,6 +75,15 @@ const api = {
     set: (partial: unknown) => ipcRenderer.invoke('config:set', partial),
     exportToml: (nodeId?: number) => ipcRenderer.invoke('config:export', nodeId),
     importToml: () => ipcRenderer.invoke('config:import')
+  },
+  // Windows Service management (Windows only)
+  winsvc: {
+    platform: process.platform,
+    status: (nodeId: number) => ipcRenderer.invoke('winsvc:status', nodeId),
+    install: (nodeId: number) => ipcRenderer.invoke('winsvc:install', nodeId),
+    uninstall: (nodeId: number) => ipcRenderer.invoke('winsvc:uninstall', nodeId),
+    start: (nodeId: number) => ipcRenderer.invoke('winsvc:start', nodeId),
+    stop: (nodeId: number) => ipcRenderer.invoke('winsvc:stop', nodeId)
   },
   // Window controls
   window: {

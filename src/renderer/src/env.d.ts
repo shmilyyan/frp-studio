@@ -24,6 +24,12 @@ interface AppConfig {
   autoReconnect: boolean
   reconnectDelay: number
   reconnectMaxRetries: number
+  autoCheckUpdate: boolean
+  updateCheckInterval: number
+  lastUpdateCheck: number | null
+  latestKnownVersion: string | null
+  proxyUrl: string
+  proxyEnabled: boolean
 }
 
 interface ImportResult {
@@ -35,6 +41,21 @@ interface ImportResult {
 }
 
 declare global {
+  type ServiceStatus =
+    | 'not-installed'
+    | 'stopped'
+    | 'running'
+    | 'starting'
+    | 'stopping'
+    | 'unknown'
+
+  interface BackupInfo {
+    filename: string
+    version: string
+    date: string
+    size: number
+  }
+
   interface Window {
     api: {
       node: {
@@ -78,16 +99,32 @@ declare global {
         getInstalledVersion(): Promise<string | null>
         setAutostart(enabled: boolean): Promise<{ success: boolean }>
         getAutostart(): Promise<boolean>
+        checkUpdate(): Promise<{ hasUpdate: boolean; latestVersion: string | null; currentVersion: string | null }>
+        importFrpc(): Promise<{ success: boolean; version: string | null; error?: string }>
+        listBackups(): Promise<BackupInfo[]>
+        restoreBackup(filename: string): Promise<{ success: boolean; version: string | null; error?: string }>
         onDownloadProgress(
           cb: (data: { percent: number; downloaded: number; total: number }) => void
         ): () => void
         onDownloadComplete(cb: (data: { version: string }) => void): () => void
+        onUpdateAvailable(
+          cb: (data: { latestVersion: string; currentVersion: string }) => void
+        ): () => void
+        onAutoDownloadStart(cb: (data: { version: string }) => void): () => void
       }
       config: {
         get(): Promise<AppConfig>
         set(partial: Partial<AppConfig>): Promise<AppConfig>
         exportToml(nodeId?: number): Promise<{ success: boolean; error?: string }>
         importToml(): Promise<ImportResult>
+      }
+      winsvc: {
+        platform: string
+        status(nodeId: number): Promise<ServiceStatus>
+        install(nodeId: number): Promise<{ success: boolean; message: string }>
+        uninstall(nodeId: number): Promise<{ success: boolean; message: string }>
+        start(nodeId: number): Promise<{ success: boolean; message: string }>
+        stop(nodeId: number): Promise<{ success: boolean; message: string }>
       }
       window: {
         minimize(): void

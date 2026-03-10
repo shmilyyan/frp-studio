@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgC" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#051510"/>
+      <stop offset="100%" stop-color="#0a2a1f"/>
+    </linearGradient>
+    <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00ff88"/>
+      <stop offset="50%" stop-color="#00ddcc"/>
+      <stop offset="100%" stop-color="#00aaff"/>
+    </linearGradient>
+    <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00ff88" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#00ff88" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- 背景 -->
+  <rect width="512" height="512" rx="110" fill="url(#bgC)"/>
+  <!-- 左节点光晕 -->
+  <circle cx="120" cy="256" r="70" fill="url(#nodeGlow)"/>
+  <!-- 右节点光晕 -->
+  <circle cx="392" cy="256" r="70" fill="url(#nodeGlow)"/>
+  <!-- 左节点 -->
+  <circle cx="120" cy="256" r="44" fill="none" stroke="#00ff88" stroke-width="5" filter="url(#glow)"/>
+  <circle cx="120" cy="256" r="20" fill="#00ff88" opacity="0.9"/>
+  <!-- 右节点 -->
+  <circle cx="392" cy="256" r="44" fill="none" stroke="#00aaff" stroke-width="5" filter="url(#glow)"/>
+  <circle cx="392" cy="256" r="20" fill="#00aaff" opacity="0.9"/>
+  <!-- 数据流管道（上轨） -->
+  <path d="M 164 238 L 348 238" stroke="url(#flowGrad)" stroke-width="5" stroke-linecap="round" opacity="0.9" filter="url(#glow)"/>
+  <!-- 数据流管道（下轨） -->
+  <path d="M 164 274 L 348 274" stroke="url(#flowGrad)" stroke-width="5" stroke-linecap="round" opacity="0.9" filter="url(#glow)"/>
+  <!-- 上轨流向箭头（→） -->
+  <polygon points="330,228 355,238 330,248" fill="#00ddcc" filter="url(#glow)"/>
+  <!-- 下轨流向箭头（←） -->
+  <polygon points="182,264 157,274 182,284" fill="#00ddcc" filter="url(#glow)"/>
+  <!-- 流动粒子 -->
+  <circle cx="220" cy="238" r="4" fill="white" opacity="0.8"/>
+  <circle cx="270" cy="238" r="4" fill="white" opacity="0.6"/>
+  <circle cx="295" cy="274" r="4" fill="white" opacity="0.8"/>
+  <circle cx="245" cy="274" r="4" fill="white" opacity="0.6"/>
+</svg>

@@ -19,13 +19,15 @@ CREATE TABLE IF NOT EXISTS tunnels (
   custom_domain TEXT,
   enabled     INTEGER DEFAULT 1,
   group_name  TEXT DEFAULT '默认分组',
+  extra_attrs TEXT DEFAULT '{}',
   created_at  INTEGER DEFAULT (strftime('%s','now'))
 );
 `
 
-export const MIGRATE_SQL = `
-ALTER TABLE tunnels ADD COLUMN group_name TEXT DEFAULT '默认分组';
-`
+export const MIGRATIONS: string[] = [
+  `ALTER TABLE tunnels ADD COLUMN group_name TEXT DEFAULT '默认分组';`,
+  `ALTER TABLE tunnels ADD COLUMN extra_attrs TEXT DEFAULT '{}';`
+]
 
 export interface NodeRow {
   id: number
@@ -47,5 +49,6 @@ export interface TunnelRow {
   custom_domain: string | null
   enabled: number
   group_name: string
+  extra_attrs: string  // JSON: { [key: string]: string }
   created_at: number
 }

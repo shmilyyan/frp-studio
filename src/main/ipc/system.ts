@@ -1,9 +1,92 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron'
-import { getFrpVersions, downloadFrp, getInstalledFrpVersion } from '../downloader'
+import {
+  getFrpVersions,
+  downloadFrp,
+  getInstalledFrpVersion,
+  getLatestVersion,
+  importFrpcBinary,
+  retryDownloadWithNewProxy,
+  listBackups,
+  restoreBackup
+} from '../downloader'
 import { setAutostart, getAutostart } from '../autostart'
 import { getConfig, setConfig, AppConfig } from '../config'
-import { listNodes, addNode, listTunnels, addTunnel } from '../db'
-import { parse as parseTOML, stringify as stringifyTOML } from '@iarna/toml'
+import { listNodes, addNode, listTunnels, addTunnel, getNodeById } from '../db'
+import { parse as parseTOML } from '@iarna/toml'
+import type { NodeRow, TunnelRow } from '../db/schema'
+import {
+  getServiceStatus,
+  installService,
+  uninstallService,
+  startService,
+  stopService
+} from '../winsvc'
+
+function generateFrpcConfig(node: NodeRow, tunnels: TunnelRow[]): string {
+  let toml = `serverAddr = "${node.host}"\n`
+  toml += `serverPort = ${node.port}\n`
+  if (node.token) {
+    toml += `\n[auth]\nmethod = "token"\ntoken = "${node.token}"\n`
+  }
+  for (const t of tunnels) {
+    const ea: Record<string, string> = (() => {
+      try { return JSON.parse(t.extra_attrs || '{}') }
+      catch { return {} }
+    })()
+
+    toml += `\n[[proxies]]\n`
+    toml += `name = "${t.name}"\n`
+    toml += `type = "${t.type}"\n`
+
+    if (['tcp', 'udp', 'stcp', 'sudp'].includes(t.type)) {
+      toml += `localIP = "${t.local_ip}"\n`
+      toml += `localPort = ${t.local_port}\n`
+      if (t.remote_port && ['tcp', 'udp'].includes(t.type)) {
+        toml += `remotePort = ${t.remote_port}\n`
+      }
+    } else if (['http', 'https'].includes(t.type)) {
+      toml += `localIP = "${t.local_ip}"\n`
+      toml += `localPort = ${t.local_port}\n`
+      if (t.custom_domain) toml += `customDomains = ["${t.custom_domain}"]\n`
+    }
+
+    // HTTP / HTTPS 扩展字段
+    if (['http', 'https'].includes(t.type)) {
+      if (ea.subdomain) toml += `subdomain = "${ea.subdomain}"\n`
+      if (ea.locations) {
+        try {
+          const locs = JSON.parse(ea.locations) as string[]
+          if (locs.length) toml += `locations = [${locs.map((l) => `"${l}"`).join(', ')}]\n`
+        } catch { /* ignore */ }
+      }
+      if (ea.httpUser) toml += `httpUser = "${ea.httpUser}"\n`
+      if (ea.httpPassword) toml += `httpPassword = "${ea.httpPassword}"\n`
+      if (ea.hostHeaderRewrite) toml += `hostHeaderRewrite = "${ea.hostHeaderRewrite}"\n`
+    }
+
+    // STCP / SUDP 扩展字段
+    if (['stcp', 'sudp'].includes(t.type)) {
+      if (ea.secretKey) toml += `secretKey = "${ea.secretKey}"\n`
+      if (ea.allowUsers) {
+        try {
+          const users = JSON.parse(ea.allowUsers) as string[]
+          if (users.length) toml += `allowUsers = [${users.map((u) => `"${u}"`).join(', ')}]\n`
+        } catch { /* ignore */ }
+      }
+    }
+
+    // [proxies.transport] 子块
+    const transportLines: string[] = []
+    if (ea.useEncryption === 'true') transportLines.push(`  useEncryption = true`)
+    if (ea.useCompression === 'true') transportLines.push(`  useCompression = true`)
+    if (ea.bandwidthLimit) transportLines.push(`  bandwidthLimit = "${ea.bandwidthLimit}"`)
+    if (transportLines.length) {
+      toml += `[proxies.transport]\n`
+      toml += transportLines.join('\n') + '\n'
+    }
+  }
+  return toml
+}
 
 export function registerSystemHandlers(): void {
   ipcMain.handle('system:get-frp-versions', async () => {
@@ -34,7 +117,12 @@ export function registerSystemHandlers(): void {
   ipcMain.handle('config:get', () => getConfig())
 
   ipcMain.handle('config:set', (_e, partial: Partial<AppConfig>) => {
+    const cfg = getConfig()
+    const proxyChanged =
+      ('proxyUrl' in partial && partial.proxyUrl !== cfg.proxyUrl) ||
+      ('proxyEnabled' in partial && partial.proxyEnabled !== cfg.proxyEnabled)
     setConfig(partial)
+    if (proxyChanged) retryDownloadWithNewProxy()
     return getConfig()
   })
 
@@ -47,28 +135,8 @@ export function registerSystemHandlers(): void {
 
     if (exportNodes.length === 0) return { success: false, error: '没有可导出的节点' }
 
-    // 只取第一个节点（导出当前节点模式）
     const node = exportNodes[0]
     const tunnels = listTunnels(node.id).filter((t) => t.enabled === 1)
-
-    const tomlObj: Record<string, unknown> = {
-      serverAddr: node.host,
-      serverPort: node.port
-    }
-    if (node.token) {
-      tomlObj['auth'] = { method: 'token', token: node.token }
-    }
-    tomlObj['proxies'] = tunnels.map((t) => {
-      const proxy: Record<string, unknown> = {
-        name: t.name,
-        type: t.type,
-        localIP: t.local_ip,
-        localPort: t.local_port
-      }
-      if (t.remote_port) proxy['remotePort'] = t.remote_port
-      if (t.custom_domain) proxy['customDomains'] = [t.custom_domain]
-      return proxy
-    })
 
     const { filePath } = await dialog.showSaveDialog(win, {
       title: '导出 frpc 配置',
@@ -80,9 +148,9 @@ export function registerSystemHandlers(): void {
 
     const fs = await import('fs')
     const content =
-      `# FRP Studio 导出配置 - 节点: ${node.name}\n` +
+      `# Frper 导出配置 - 节点: ${node.name}\n` +
       `# 导出时间: ${new Date().toLocaleString('zh-CN')}\n\n` +
-      stringifyTOML(tomlObj as Parameters<typeof stringifyTOML>[0])
+      generateFrpcConfig(node, tunnels)
 
     fs.writeFileSync(filePath, content, 'utf-8')
     return { success: true }
@@ -156,7 +224,8 @@ export function registerSystemHandlers(): void {
         custom_domain:
           ((proxy['customDomains'] as string[]) || [])[0] || null,
         enabled: 1,
-        group_name: '导入'
+        group_name: '导入',
+        extra_attrs: '{}'
       })
       importedNames.push(name)
     }
@@ -167,5 +236,96 @@ export function registerSystemHandlers(): void {
       imported: importedNames.length,
       skipped
     }
+  })
+
+  // ─── Check for frpc updates ───────────────────────────────────────────────
+
+  ipcMain.handle('system:check-update', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)!
+    const currentVersion = getInstalledFrpVersion()
+    const latest = await getLatestVersion()
+    const latestVersion = latest?.version ?? null
+
+    const hasUpdate =
+      !!latestVersion &&
+      !!currentVersion &&
+      currentVersion !== 'unknown' &&
+      latestVersion !== currentVersion
+
+    // Persist last-check time and latest known version
+    setConfig({ lastUpdateCheck: Date.now(), latestKnownVersion: latestVersion })
+
+    if (hasUpdate) {
+      win.webContents.send('system:update-available', { latestVersion, currentVersion })
+    }
+
+    return { hasUpdate, latestVersion, currentVersion }
+  })
+
+  // ─── Import frpc binary from local file ──────────────────────────────────
+
+  ipcMain.handle('system:import-frpc', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)!
+    const filters =
+      process.platform === 'win32'
+        ? [{ name: 'frpc 可执行文件', extensions: ['exe'] }]
+        : [{ name: 'frpc 可执行文件', extensions: ['*'] }]
+
+    const { filePaths } = await dialog.showOpenDialog(win, {
+      title: '选择 frpc 可执行文件',
+      filters,
+      properties: ['openFile']
+    })
+
+    if (!filePaths[0]) return { success: false, version: null, error: 'cancelled' }
+
+    return importFrpcBinary(filePaths[0], win)
+  })
+
+  // ─── Backup management ────────────────────────────────────────────────────
+
+  ipcMain.handle('system:list-backups', () => {
+    try { return listBackups() } catch { return [] }
+  })
+
+  ipcMain.handle('system:restore-backup', async (event, filename: string) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) return { success: false, version: null, error: '无法获取窗口' }
+      return await restoreBackup(filename, win)
+    } catch (e) {
+      return { success: false, version: null, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // ─── Windows Service Management ───────────────────────────────────────────
+
+  ipcMain.handle('winsvc:status', async (_e, nodeId: number) => {
+    return getServiceStatus(nodeId)
+  })
+
+  ipcMain.handle('winsvc:install', async (_e, nodeId: number) => {
+    const node = getNodeById(nodeId)
+    if (!node) return { success: false, message: '节点不存在' }
+
+    const tunnels = listTunnels(nodeId).filter((t) => t.enabled === 1)
+    if (tunnels.length === 0) {
+      return { success: false, message: '该节点没有已启用的隧道，请先启用至少一条隧道' }
+    }
+
+    const configContent = generateFrpcConfig(node, tunnels)
+    return installService(nodeId, node.name, configContent)
+  })
+
+  ipcMain.handle('winsvc:uninstall', async (_e, nodeId: number) => {
+    return uninstallService(nodeId)
+  })
+
+  ipcMain.handle('winsvc:start', async (_e, nodeId: number) => {
+    return startService(nodeId)
+  })
+
+  ipcMain.handle('winsvc:stop', async (_e, nodeId: number) => {
+    return stopService(nodeId)
   })
 }

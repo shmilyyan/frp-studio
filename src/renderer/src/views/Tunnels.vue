@@ -137,6 +137,7 @@
     </div>
 
     <TunnelWizard v-model:open="wizardOpen" @created="handleCreated" />
+    <TunnelEditModal v-model:open="editOpen" :tunnel="editingTunnel" @updated="handleUpdated" />
   </div>
 </template>
 
@@ -147,12 +148,15 @@ import { useNodeStore } from '../stores/node'
 import { useTunnelStore, type Tunnel } from '../stores/tunnel'
 import { useConfigStore } from '../stores/config'
 import TunnelWizard from '../components/tunnel/TunnelWizard.vue'
+import TunnelEditModal from '../components/tunnel/TunnelEditModal.vue'
 
 const nodeStore = useNodeStore()
 const tunnelStore = useTunnelStore()
 const configStore = useConfigStore()
 
 const wizardOpen = ref(false)
+const editOpen = ref(false)
+const editingTunnel = ref<Tunnel | null>(null)
 const filterNodeId = ref<number | null>(null)
 const startNodeId = ref<number | null>(null)
 const starting = ref(false)
@@ -226,8 +230,13 @@ async function toggleTunnel(tunnel: Tunnel, enabled: boolean) {
   await tunnelStore.updateTunnel(tunnel.id, { enabled: enabled ? 1 : 0 })
 }
 
-function editTunnel(_tunnel: Tunnel) {
-  message.info('编辑功能即将上线')
+function editTunnel(tunnel: Tunnel) {
+  editingTunnel.value = tunnel
+  editOpen.value = true
+}
+
+function handleUpdated(_tunnel: Tunnel) {
+  tunnelStore.fetchGroups()
 }
 
 function deleteTunnel(tunnel: Tunnel) {

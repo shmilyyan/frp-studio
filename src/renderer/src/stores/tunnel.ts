@@ -11,6 +11,7 @@ export interface Tunnel {
   custom_domain: string | null
   enabled: number
   group_name: string
+  extra_attrs: string  // JSON: Record<string, string>
   created_at: number
 }
 

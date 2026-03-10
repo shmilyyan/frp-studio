@@ -9,6 +9,12 @@ export interface AppConfig {
   autoReconnect: boolean
   reconnectDelay: number
   reconnectMaxRetries: number
+  autoCheckUpdate: boolean
+  updateCheckInterval: number  // hours
+  lastUpdateCheck: number | null
+  latestKnownVersion: string | null
+  proxyUrl: string  // e.g. "http://127.0.0.1:7890" or "" for direct
+  proxyEnabled: boolean
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -17,7 +23,13 @@ const DEFAULT_CONFIG: AppConfig = {
   activeNodeId: null,
   autoReconnect: true,
   reconnectDelay: 5,
-  reconnectMaxRetries: 0
+  reconnectMaxRetries: 0,
+  autoCheckUpdate: true,
+  updateCheckInterval: 24,
+  lastUpdateCheck: null,
+  latestKnownVersion: null,
+  proxyUrl: '',
+  proxyEnabled: false
 }
 
 let configPath: string

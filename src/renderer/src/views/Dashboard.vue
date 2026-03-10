@@ -2,7 +2,7 @@
   <div class="dashboard-view">
     <div class="page-header">
       <h1 class="page-title">仪表盘</h1>
-      <p class="page-subtitle">FRP Studio 运行概览</p>
+      <p class="page-subtitle">Frper 运行概览</p>
     </div>
 
     <!-- Status cards -->

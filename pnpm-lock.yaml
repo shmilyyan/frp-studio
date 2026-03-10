@@ -20,6 +20,9 @@ importers:
       ant-design-vue:
         specifier: ^4.2.6
         version: 4.2.6(vue@3.5.29(typescript@5.9.3))
+      https-proxy-agent:
+        specifier: ^7.0.6
+        version: 7.0.6
       pinia:
         specifier: ^2.2.6
         version: 2.3.1(typescript@5.9.3)(vue@3.5.29(typescript@5.9.3))

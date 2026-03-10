@@ -4,6 +4,7 @@ import path from 'path'
 import fs from 'fs'
 import { app } from 'electron'
 import { getConfig } from './config'
+import { getFrpcPath } from './paths'
 
 export interface FrpcStatus {
   running: boolean
@@ -23,6 +24,7 @@ export interface FrpcConfig {
     localPort: number
     remotePort?: number
     customDomain?: string
+    extraAttrs?: Record<string, string>
   }>
 }
 
@@ -42,13 +44,7 @@ class FrpcManager {
   constructor() {
     const userData = app.getPath('userData')
     this.configPath = path.join(userData, 'frpc.toml')
-    this.frpcPath = this.resolveFrpcPath()
-  }
-
-  private resolveFrpcPath(): string {
-    const userData = app.getPath('userData')
-    const binName = process.platform === 'win32' ? 'frpc.exe' : 'frpc'
-    return path.join(userData, 'frp', binName)
+    this.frpcPath = getFrpcPath()
   }
 
   private generateConfig(config: FrpcConfig): string {
@@ -58,17 +54,56 @@ class FrpcManager {
       toml += `\n[auth]\nmethod = "token"\ntoken = "${config.token}"\n`
     }
     for (const tunnel of config.tunnels) {
+      const ea = tunnel.extraAttrs ?? {}
       toml += `\n[[proxies]]\n`
       toml += `name = "${tunnel.name}"\n`
       toml += `type = "${tunnel.type}"\n`
-      if (['tcp', 'udp'].includes(tunnel.type)) {
+
+      if (['tcp', 'udp', 'stcp', 'sudp'].includes(tunnel.type)) {
         toml += `localIP = "${tunnel.localIP}"\n`
         toml += `localPort = ${tunnel.localPort}\n`
-        if (tunnel.remotePort) toml += `remotePort = ${tunnel.remotePort}\n`
+        if (tunnel.remotePort && ['tcp', 'udp'].includes(tunnel.type)) {
+          toml += `remotePort = ${tunnel.remotePort}\n`
+        }
       } else if (['http', 'https'].includes(tunnel.type)) {
         toml += `localIP = "${tunnel.localIP}"\n`
         toml += `localPort = ${tunnel.localPort}\n`
         if (tunnel.customDomain) toml += `customDomains = ["${tunnel.customDomain}"]\n`
+      }
+
+      // HTTP / HTTPS 扩展字段
+      if (['http', 'https'].includes(tunnel.type)) {
+        if (ea.subdomain) toml += `subdomain = "${ea.subdomain}"\n`
+        if (ea.locations) {
+          try {
+            const locs = JSON.parse(ea.locations) as string[]
+            if (locs.length > 0) toml += `locations = [${locs.map((l) => `"${l}"`).join(', ')}]\n`
+          } catch { /* ignore */ }
+        }
+        if (ea.httpUser) toml += `httpUser = "${ea.httpUser}"\n`
+        if (ea.httpPassword) toml += `httpPassword = "${ea.httpPassword}"\n`
+        if (ea.hostHeaderRewrite) toml += `hostHeaderRewrite = "${ea.hostHeaderRewrite}"\n`
+      }
+
+      // STCP / SUDP 扩展字段
+      if (['stcp', 'sudp'].includes(tunnel.type)) {
+        if (ea.secretKey) toml += `secretKey = "${ea.secretKey}"\n`
+        if (ea.allowUsers) {
+          try {
+            const users = JSON.parse(ea.allowUsers) as string[]
+            if (users.length > 0) toml += `allowUsers = [${users.map((u) => `"${u}"`).join(', ')}]\n`
+          } catch { /* ignore */ }
+        }
+      }
+
+      // [proxies.transport] 子块
+      const transportLines: string[] = []
+      if (ea.useEncryption === 'true') transportLines.push(`  useEncryption = true`)
+      if (ea.useCompression === 'true') transportLines.push(`  useCompression = true`)
+      if (ea.bandwidthLimit) transportLines.push(`  bandwidthLimit = "${ea.bandwidthLimit}"`)
+      if (transportLines.length > 0) {
+        toml += `[proxies.transport]\n`
+        toml += transportLines.join('\n') + '\n'
       }
     }
     return toml
@@ -100,7 +135,7 @@ class FrpcManager {
     if (cfg.reconnectMaxRetries > 0 && this.retryCount >= cfg.reconnectMaxRetries) {
       this.sendLog(win, 'error', `已达最大重连次数（${cfg.reconnectMaxRetries}），停止重连`)
       new Notification({
-        title: 'FRP Studio',
+        title: 'Frper',
         body: `连接失败，已达最大重试次数 ${cfg.reconnectMaxRetries}，请手动检查`
       }).show()
       return
@@ -111,7 +146,7 @@ class FrpcManager {
     this.sendLog(win, 'system', `${delay} 秒后自动重连（第 ${this.retryCount} 次）...`)
 
     new Notification({
-      title: 'FRP Studio',
+      title: 'Frper',
       body: `连接断开，${delay} 秒后自动重连（第 ${this.retryCount} 次）`
     }).show()
 
@@ -171,7 +206,7 @@ class FrpcManager {
         // 重连成功
         this.retryCount = 0
         new Notification({
-          title: 'FRP Studio',
+          title: 'Frper',
           body: '连接已恢复'
         }).show()
       }

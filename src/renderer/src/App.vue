@@ -2,6 +2,13 @@
   <a-config-provider :theme="darkTheme">
     <div class="app-container">
       <AppHeader />
+      <!-- Global download progress bar -->
+      <div v-if="updateStore.isDownloading" class="global-progress-bar">
+        <div
+          class="global-progress-fill"
+          :style="{ width: updateStore.downloadPercent + '%' }"
+        ></div>
+      </div>
       <div class="app-body">
         <AppSidebar />
         <main class="app-content">
@@ -23,25 +30,53 @@ import AppSidebar from './components/layout/AppSidebar.vue'
 import { darkTheme } from './styles/theme'
 import { useMonitorStore } from './stores/monitor'
 import { useTunnelStore } from './stores/tunnel'
+import { useUpdateStore } from './stores/update'
+import { message } from 'ant-design-vue'
 
 const monitorStore = useMonitorStore()
 const tunnelStore = useTunnelStore()
+const updateStore = useUpdateStore()
 
-let removeLogListener: (() => void) | null = null
-let removeStatusListener: (() => void) | null = null
+let removeListeners: Array<() => void> = []
 
 onMounted(() => {
-  removeLogListener = window.api.frpc.onLog((data) => {
-    monitorStore.addLog(data)
-  })
-  removeStatusListener = window.api.frpc.onStatus((status) => {
-    tunnelStore.frpcStatus = status as typeof tunnelStore.frpcStatus
-  })
+  removeListeners.push(
+    window.api.frpc.onLog((data) => {
+      monitorStore.addLog(data)
+    })
+  )
+  removeListeners.push(
+    window.api.frpc.onStatus((status) => {
+      tunnelStore.frpcStatus = status as typeof tunnelStore.frpcStatus
+    })
+  )
+  removeListeners.push(
+    window.api.system.onUpdateAvailable(({ latestVersion, currentVersion }) => {
+      updateStore.setUpdateAvailable(latestVersion, currentVersion)
+    })
+  )
+  removeListeners.push(
+    window.api.system.onAutoDownloadStart(({ version }) => {
+      updateStore.startDownload(version)
+      message.info(`正在自动下载 frpc ${version}...`)
+    })
+  )
+  removeListeners.push(
+    window.api.system.onDownloadProgress(({ percent }) => {
+      updateStore.setProgress(percent)
+    })
+  )
+  removeListeners.push(
+    window.api.system.onDownloadComplete(({ version }) => {
+      updateStore.finishDownload(version)
+      message.success(`FRP ${version} 安装完成`)
+    })
+  )
 })
 
 onUnmounted(() => {
-  removeLogListener?.()
-  removeStatusListener?.()
+  removeListeners.forEach((fn) => fn())
+  removeListeners = []
 })
 </script>
 
@@ -51,6 +86,21 @@ onUnmounted(() => {
   flex-direction: column;
   height: 100vh;
   background-color: var(--color-bg-primary);
+}
+
+.global-progress-bar {
+  height: 2px;
+  background: rgba(22, 104, 220, 0.2);
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.global-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1668dc, #4096ff);
+  transition: width 0.3s ease;
+  min-width: 2%;
 }
 
 .app-body {

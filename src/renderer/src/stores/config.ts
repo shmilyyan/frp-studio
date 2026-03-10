@@ -7,6 +7,12 @@ export interface AppConfig {
   autoReconnect: boolean
   reconnectDelay: number
   reconnectMaxRetries: number
+  autoCheckUpdate: boolean
+  updateCheckInterval: number
+  lastUpdateCheck: number | null
+  latestKnownVersion: string | null
+  proxyUrl: string
+  proxyEnabled: boolean
 }
 
 export const useConfigStore = defineStore('config', {
@@ -16,7 +22,13 @@ export const useConfigStore = defineStore('config', {
     activeNodeId: null,
     autoReconnect: true,
     reconnectDelay: 5,
-    reconnectMaxRetries: 0
+    reconnectMaxRetries: 0,
+    autoCheckUpdate: true,
+    updateCheckInterval: 24,
+    lastUpdateCheck: null,
+    latestKnownVersion: null,
+    proxyUrl: '',
+    proxyEnabled: false
   }),
   actions: {
     async fetch() {

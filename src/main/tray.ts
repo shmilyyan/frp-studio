@@ -29,7 +29,7 @@ function getTrayIcon(): Electron.NativeImage {
 
 export function createTray(win: BrowserWindow): void {
   tray = new Tray(getTrayIcon())
-  tray.setToolTip('FRP Studio')
+  tray.setToolTip('Frper')
   refreshTrayMenu(win)
 
   tray.on('double-click', () => {
@@ -44,7 +44,7 @@ export function refreshTrayMenu(win: BrowserWindow): void {
   const statusLabel = status.running ? `● 运行中  PID ${status.pid}` : '○ 已停止'
 
   const menu = Menu.buildFromTemplate([
-    { label: 'FRP Studio', enabled: false },
+    { label: 'Frper', enabled: false },
     { type: 'separator' },
     { label: statusLabel, enabled: false },
     { type: 'separator' },
@@ -88,7 +88,7 @@ export async function handleWindowClose(
     const { dialog } = await import('electron')
     const { response } = await dialog.showMessageBox(win, {
       type: 'question',
-      title: 'FRP Studio',
+      title: 'Frper',
       message: '选择关闭方式',
       detail: '最小化到托盘时，frpc 将继续在后台运行。',
       buttons: ['最小化到托盘', '直接退出'],

@@ -60,7 +60,11 @@ export function registerTunnelHandlers(): void {
           localIP: t.local_ip,
           localPort: t.local_port,
           remotePort: t.remote_port ?? undefined,
-          customDomain: t.custom_domain ?? undefined
+          customDomain: t.custom_domain ?? undefined,
+          extraAttrs: (() => {
+            try { return JSON.parse(t.extra_attrs || '{}') as Record<string, string> }
+            catch { return {} }
+          })()
         }))
       },
       nodeId,

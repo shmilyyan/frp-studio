@@ -8,7 +8,10 @@
         class="nav-item"
         :class="{ active: currentPath === item.path }"
       >
-        <span class="nav-icon">{{ item.icon }}</span>
+        <span class="nav-icon-wrap">
+          <span class="nav-icon">{{ item.icon }}</span>
+          <span v-if="item.path === '/settings' && updateStore.hasUpdate" class="update-dot"></span>
+        </span>
         <span class="nav-label">{{ item.label }}</span>
       </router-link>
     </nav>
@@ -25,9 +28,11 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTunnelStore } from '../../stores/tunnel'
+import { useUpdateStore } from '../../stores/update'
 
 const route = useRoute()
 const tunnelStore = useTunnelStore()
+const updateStore = useUpdateStore()
 
 const currentPath = computed(() => route.path)
 const frpcStatus = computed(() => tunnelStore.frpcStatus)
@@ -82,11 +87,29 @@ const navItems = [
   color: #4096ff;
 }
 
+.nav-icon-wrap {
+  position: relative;
+  width: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .nav-icon {
   font-size: 16px;
-  width: 20px;
   text-align: center;
-  flex-shrink: 0;
+}
+
+.update-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fa8c16;
+  border: 1px solid var(--color-bg-secondary);
 }
 
 .nav-label {
