@@ -12,8 +12,21 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            build_cmd: pnpm build:linux
+          - os: windows-latest
+            platform: windows
+            build_cmd: pnpm build:win
+          - os: macos-latest
+            platform: macos
+            build_cmd: pnpm build:mac
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code
@@ -56,13 +69,11 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            # Tag push - use tag version
             TAG="${GITHUB_REF#refs/tags/}"
             echo "VERSION=${TAG#v}" >> $GITHUB_OUTPUT
             echo "IS_TAG=true" >> $GITHUB_OUTPUT
             echo "PRERELEASE=false" >> $GITHUB_OUTPUT
           else
-            # Regular push - generate version with date and commit hash
             BASE_VERSION=$(node -p "require('./package.json').version" | cut -d'+' -f1)
             DATE=$(date +%Y%m%d)
             COMMIT_HASH=$(git rev-parse --short=7 HEAD)
@@ -75,50 +86,101 @@ jobs:
       - name: Update package.json version
         run: |
           if [ "${{ steps.version.outputs.IS_TAG }}" == "false" ]; then
-            # Directly update package.json without npm version check
             node -e "const pkg = require('./package.json'); pkg.version = '${{ steps.version.outputs.VERSION }}'; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
           fi
 
-      - name: Build Windows
-        run: pnpm build:win
+      - name: Build
+        run: ${{ matrix.build_cmd }}
 
-      - name: Build macOS
-        run: pnpm build:mac
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/win-unpacked
+            dist/mac
+            dist/linux-unpacked
 
-      - name: Build Linux
-        run: pnpm build:linux
+  create-portables:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Determine version type
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "VERSION=${TAG#v}" >> $GITHUB_OUTPUT
+            echo "IS_TAG=true" >> $GITHUB_OUTPUT
+            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+          else
+            BASE_VERSION=$(node -p "require('./package.json').version" | cut -d'+' -f1)
+            DATE=$(date +%Y%m%d)
+            COMMIT_HASH=$(git rev-parse --short=7 HEAD)
+            VERSION="${BASE_VERSION}+${DATE}.${COMMIT_HASH}"
+            echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+            echo "IS_TAG=false" >> $GITHUB_OUTPUT
+            echo "PRERELEASE=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create portable Windows zip
         run: |
-          cd dist/win-unpacked
-          zip -r ../Frper-portable-${{ steps.version.outputs.VERSION }}-win.zip .
-          cd ..
+          cd artifacts/dist-windows
+          if [ -d "win-unpacked" ]; then
+            cd win-unpacked
+            zip -r ../../Frper-portable-${{ steps.version.outputs.VERSION }}-win.zip .
+            cd ../..
+          fi
 
       - name: Create portable macOS zip
         run: |
-          cd dist/mac
-          zip -r ../Frper-portable-${{ steps.version.outputs.VERSION }}-mac.zip .
-          cd ..
+          cd artifacts/dist-macos
+          if [ -d "mac" ]; then
+            cd mac
+            zip -r ../../Frper-portable-${{ steps.version.outputs.VERSION }}-mac.zip .
+            cd ../..
+          fi
 
       - name: Create portable Linux zip
         run: |
-          if [ -d dist/linux-unpacked ]; then
-            cd dist/linux-unpacked
-            zip -r ../Frper-portable-${{ steps.version.outputs.VERSION }}-linux.zip .
-            cd ..
+          cd artifacts/dist-linux
+          if [ -d "linux-unpacked" ]; then
+            cd linux-unpacked
+            zip -r ../../Frper-portable-${{ steps.version.outputs.VERSION }}-linux.zip .
+            cd ../..
           fi
 
+      - name: Collect all artifacts
+        run: |
+          mkdir -p release
+          find artifacts -name "*.exe" -exec cp {} release/ \;
+          find artifacts -name "*.dmg" -exec cp {} release/ \;
+          find artifacts -name "*.AppImage" -exec cp {} release/ \;
+          find . -name "Frper-portable-*.zip" -exec cp {} release/ \;
+          ls -lh release/
+
       - name: Generate release notes
-        id: notes
         shell: bash
         run: |
           if [ "${{ steps.version.outputs.IS_TAG }}" == "true" ]; then
-            # Tag release - get commits since last tag
             LAST_TAG=$(git describe --tags --abbrev=0 HEAD^)
             echo "## What's Changed" >> release_notes.md
             git log ${LAST_TAG}..HEAD --pretty=format:"- %s" >> release_notes.md
           else
-            # Regular push - latest commit
             echo "## Build Information" >> release_notes.md
             echo "" >> release_notes.md
             echo "**Version:** ${{ steps.version.outputs.VERSION }}" >> release_notes.md
@@ -143,9 +205,6 @@ jobs:
           draft: false
           prerelease: ${{ steps.version.outputs.PRERELEASE }}
           files: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.AppImage
-            dist/Frper-portable-*.zip
+            release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
