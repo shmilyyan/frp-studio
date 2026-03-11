@@ -1,0 +1,150 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Determine version type
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Tag push - use tag version
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "VERSION=${TAG#v}" >> $GITHUB_OUTPUT
+            echo "IS_TAG=true" >> $GITHUB_OUTPUT
+            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+          else
+            # Regular push - generate version with date and commit hash
+            BASE_VERSION=$(node -p "require('./package.json').version")
+            DATE=$(date +%Y%m%d)
+            COMMIT_HASH=$(git rev-parse --short=7 HEAD)
+            VERSION="${BASE_VERSION}+${DATE}.${COMMIT_HASH}"
+            echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+            echo "IS_TAG=false" >> $GITHUB_OUTPUT
+            echo "PRERELEASE=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update package.json version
+        run: |
+          if [ "${{ steps.version.outputs.IS_TAG }}" == "false" ]; then
+            npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version
+          fi
+
+      - name: Build Windows
+        run: pnpm build:win
+
+      - name: Build macOS
+        run: pnpm build:mac
+
+      - name: Build Linux
+        run: pnpm build:linux
+
+      - name: Create portable Windows zip
+        run: |
+          cd dist/win-unpacked
+          zip -r ../Frper-portable-${{ steps.version.outputs.VERSION }}-win.zip .
+          cd ..
+
+      - name: Create portable macOS zip
+        run: |
+          cd dist/mac
+          zip -r ../Frper-portable-${{ steps.version.outputs.VERSION }}-mac.zip .
+          cd ..
+
+      - name: Create portable Linux zip
+        run: |
+          if [ -d dist/linux-unpacked ]; then
+            cd dist/linux-unpacked
+            zip -r ../Frper-portable-${{ steps.version.outputs.VERSION }}-linux.zip .
+            cd ..
+          fi
+
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        run: |
+          if [ "${{ steps.version.outputs.IS_TAG }}" == "true" ]; then
+            # Tag release - get commits since last tag
+            LAST_TAG=$(git describe --tags --abbrev=0 HEAD^)
+            echo "## What's Changed" >> release_notes.md
+            git log ${LAST_TAG}..HEAD --pretty=format:"- %s" >> release_notes.md
+          else
+            # Regular push - latest commit
+            echo "## Build Information" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "**Version:** ${{ steps.version.outputs.VERSION }}" >> release_notes.md
+            echo "**Commit:** ${{ github.sha }}" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "### Latest Changes" >> release_notes.md
+            git log -1 --pretty=format:"- %s%n%n%b" >> release_notes.md
+          fi
+          echo "### Download" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "- **Windows Installer:** \`Frper Setup *.exe\`" >> release_notes.md
+          echo "- **Windows Portable:** \`Frper-portable-*-win.zip\`" >> release_notes.md
+          echo "- **macOS:** \`Frper-*.dmg\`" >> release_notes.md
+          echo "- **Linux:** \`Frper-*.AppImage\`" >> release_notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: v${{ steps.version.outputs.VERSION }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ steps.version.outputs.PRERELEASE }}
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/Frper-portable-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

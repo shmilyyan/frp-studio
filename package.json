@@ -1,6 +1,6 @@
 {
   "name": "frper",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Frper - Desktop client for frp management",
   "main": "./out/main/index.js",
   "author": "FRP Studio",
