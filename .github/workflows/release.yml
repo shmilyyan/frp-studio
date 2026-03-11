@@ -63,7 +63,7 @@ jobs:
             echo "PRERELEASE=false" >> $GITHUB_OUTPUT
           else
             # Regular push - generate version with date and commit hash
-            BASE_VERSION=$(node -p "require('./package.json').version")
+            BASE_VERSION=$(node -p "require('./package.json').version" | cut -d'+' -f1)
             DATE=$(date +%Y%m%d)
             COMMIT_HASH=$(git rev-parse --short=7 HEAD)
             VERSION="${BASE_VERSION}+${DATE}.${COMMIT_HASH}"
@@ -75,6 +75,8 @@ jobs:
       - name: Update package.json version
         run: |
           if [ "${{ steps.version.outputs.IS_TAG }}" == "false" ]; then
+            # Extract base version (remove +date.hash if present)
+            BASE_VERSION=$(node -p "require('./package.json').version" | cut -d'+' -f1)
             npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version
           fi
 
