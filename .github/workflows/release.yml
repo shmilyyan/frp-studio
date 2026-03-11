@@ -75,9 +75,8 @@ jobs:
       - name: Update package.json version
         run: |
           if [ "${{ steps.version.outputs.IS_TAG }}" == "false" ]; then
-            # Extract base version (remove +date.hash if present)
-            BASE_VERSION=$(node -p "require('./package.json').version" | cut -d'+' -f1)
-            npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version
+            # Directly update package.json without npm version check
+            node -e "const pkg = require('./package.json'); pkg.version = '${{ steps.version.outputs.VERSION }}'; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
           fi
 
       - name: Build Windows
