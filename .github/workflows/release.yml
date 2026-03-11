@@ -84,6 +84,7 @@ jobs:
           fi
 
       - name: Update package.json version
+        shell: bash
         run: |
           if [ "${{ steps.version.outputs.IS_TAG }}" == "false" ]; then
             node -e "const pkg = require('./package.json'); pkg.version = '${{ steps.version.outputs.VERSION }}'; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
