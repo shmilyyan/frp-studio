@@ -1,7 +1,8 @@
-import { Tray, Menu, BrowserWindow, app, nativeImage } from 'electron'
+import { Tray, Menu, BrowserWindow, app, nativeImage, Notification } from 'electron'
 import path from 'path'
 import { is } from '@electron-toolkit/utils'
-import { frpcManager } from './frpc'
+import { frpcManager, FrpcConfig } from './frpc'
+import { listNodes, listTunnels } from './db'
 import { getConfig, setConfig } from './config'
 
 let tray: Tray | null = null
@@ -40,13 +41,98 @@ export function createTray(win: BrowserWindow): void {
 
 export function refreshTrayMenu(win: BrowserWindow): void {
   if (!tray) return
-  const status = frpcManager.getStatus()
-  const statusLabel = status.running ? `● 运行中  PID ${status.pid}` : '○ 已停止'
+
+  const nodes = listNodes()
+  const runningStatuses: string[] = []
+
+  for (const node of nodes) {
+    const status = frpcManager.getStatus(node.id)
+    if (status.running) {
+      runningStatuses.push(`${node.name} (PID ${status.pid})`)
+    }
+  }
+
+  let statusLabel: string
+  if (runningStatuses.length === 0) {
+    statusLabel = '○ 所有节点已停止'
+  } else if (runningStatuses.length === 1) {
+    statusLabel = `● ${runningStatuses[0]}`
+  } else {
+    statusLabel = `● ${runningStatuses.length} 个节点运行中`
+  }
+
+  // Build node submenu with start/stop options
+  const nodeItems: Electron.MenuItemConstructorOptions[] = nodes.map((node) => {
+    const status = frpcManager.getStatus(node.id)
+    return {
+      label: `${status.running ? '●' : '○'} ${node.name}`,
+      sublabel: status.running ? `PID ${status.pid}` : '已停止',
+      click: async () => {
+        if (status.running) {
+          // Stop node
+          frpcManager.stop(node.id)
+          new Notification({
+            title: 'Frper',
+            body: `节点 ${node.name} 已停止`
+          }).show()
+        } else {
+          // Start node directly from tray
+          const tunnels = listTunnels(node.id).filter((t) => t.enabled === 1)
+          if (tunnels.length === 0) {
+            new Notification({
+              title: 'Frper',
+              body: `节点 ${node.name} 没有启用的隧道，无法启动`
+            }).show()
+            return
+          }
+
+          try {
+            const config: FrpcConfig = {
+              serverAddr: node.host,
+              serverPort: node.port,
+              token: node.token ?? undefined,
+              tunnels: tunnels.map((t) => ({
+                name: t.name,
+                type: t.type,
+                localIP: t.local_ip,
+                localPort: t.local_port,
+                remotePort: t.remote_port ?? undefined,
+                customDomain: t.custom_domain ?? undefined,
+                extraAttrs: (() => {
+                  try { return JSON.parse(t.extra_attrs || '{}') as Record<string, string> }
+                  catch { return {} }
+                })()
+              }))
+            }
+            frpcManager.start(config, node.id, win)
+            new Notification({
+              title: 'Frper',
+              body: `节点 ${node.name} 已启动`
+            }).show()
+          } catch (err) {
+            new Notification({
+              title: 'Frper',
+              body: `节点 ${node.name} 启动失败: ${err instanceof Error ? err.message : '未知错误'}`
+            }).show()
+          }
+        }
+      }
+    }
+  })
 
   const menu = Menu.buildFromTemplate([
     { label: 'Frper', enabled: false },
     { type: 'separator' },
     { label: statusLabel, enabled: false },
+    ...(nodeItems.length > 0
+      ? [
+          { type: 'separator' as const },
+          {
+            label: '节点',
+            submenu: nodeItems
+          } as Electron.MenuItemConstructorOptions
+        ]
+      : []),
     { type: 'separator' },
     {
       label: '显示主界面',
@@ -59,6 +145,8 @@ export function refreshTrayMenu(win: BrowserWindow): void {
     {
       label: '退出',
       click: () => {
+        // Stop all frpc processes before quit
+        frpcManager.stopAll()
         setConfig({ trayEnabled: false })
         app.quit()
       }
@@ -101,6 +189,8 @@ export async function handleWindowClose(
       createTray(win)
       win.hide()
     } else {
+      // Stop all frpc before quit
+      frpcManager.stopAll()
       app.quit()
     }
     return
@@ -110,6 +200,8 @@ export async function handleWindowClose(
     e.preventDefault()
     if (!hasTray()) createTray(win)
     win.hide()
+  } else {
+    // Stop all frpc before quit
+    frpcManager.stopAll()
   }
-  // else: 正常退出
 }

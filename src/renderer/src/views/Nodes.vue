@@ -50,25 +50,23 @@
           v-for="node in nodeStore.nodes"
           :key="node.id"
           class="node-wrapper"
-          :class="{ active: configStore.activeNodeId === node.id }"
+          :class="{ active: nodeStore.isNodeRunning(node.id) }"
         >
-          <div v-if="configStore.activeNodeId === node.id" class="active-badge">★ 活动节点</div>
+          <div v-if="nodeStore.isNodeRunning(node.id)" class="active-badge">
+            ● 运行中
+          </div>
           <NodeCard
             :node="node"
+            :is-running="nodeStore.isNodeRunning(node.id)"
+            :frpc-status="nodeStore.frpcStatuses[node.id]"
             @test="openTestModal"
             @config="openConfigModal"
             @edit="openEditModal"
             @delete="confirmDelete"
             @start="handleStart"
+            @stop="handleStop"
+            @toggle-auto-start="handleToggleAutoStart"
           />
-          <a-button
-            v-if="configStore.activeNodeId !== node.id"
-            class="set-active-btn"
-            size="small"
-            @click="setActiveNode(node.id)"
-          >
-            设为活动节点
-          </a-button>
         </div>
       </div>
     </a-spin>
@@ -98,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { Modal, message } from 'ant-design-vue'
 import { useNodeStore, type Node } from '../stores/node'
 import { useTunnelStore } from '../stores/tunnel'
@@ -119,8 +117,24 @@ const editingNode = ref<Node | null>(null)
 const testNode = ref<Node | null>(null)
 const configNode = ref<Node | null>(null)
 
+let statusUnsubscribe: (() => void) | null = null
+
 onMounted(async () => {
-  await Promise.all([nodeStore.fetchNodes(), tunnelStore.fetchTunnels(), configStore.fetch()])
+  await Promise.all([
+    nodeStore.fetchNodes(),
+    tunnelStore.fetchTunnels(),
+    configStore.fetch()
+  ])
+  await nodeStore.fetchAllFrpcStatus()
+
+  // Subscribe to frpc status updates
+  statusUnsubscribe = window.api.frpc.onStatus((data) => {
+    nodeStore.updateFrpcStatus(data.nodeId, data.status)
+  })
+})
+
+onUnmounted(() => {
+  statusUnsubscribe?.()
 })
 
 function openAddModal() {
@@ -148,11 +162,7 @@ async function handleFormSubmit(data: Omit<Node, 'id' | 'created_at'>) {
     await nodeStore.updateNode(editingNode.value.id, data)
     message.success('节点已更新')
   } else {
-    const node = await nodeStore.addNode(data)
-    // 首个节点自动设为活动节点
-    if (nodeStore.nodes.length === 1) {
-      await configStore.update({ activeNodeId: node.id })
-    }
+    await nodeStore.addNode(data)
     message.success('节点已添加')
   }
 }
@@ -172,28 +182,46 @@ function confirmDelete(node: Node) {
     okType: 'danger',
     cancelText: '取消',
     async onOk() {
-      await nodeStore.deleteNode(node.id)
-      if (configStore.activeNodeId === node.id) {
-        const first = nodeStore.nodes[0]
-        await configStore.update({ activeNodeId: first?.id ?? null })
+      // Stop frpc if running
+      if (nodeStore.isNodeRunning(node.id)) {
+        await nodeStore.stopFrpc(node.id)
       }
+      await nodeStore.deleteNode(node.id)
       message.success('节点已删除')
     }
   })
 }
 
-async function setActiveNode(id: number) {
-  await configStore.update({ activeNodeId: id })
-  message.success('活动节点已切换')
-}
-
 async function handleStart(node: Node) {
+  const enabledTunnels = tunnelStore.enabledTunnelsByNode(node.id)
+  if (enabledTunnels.length === 0) {
+    message.warning('该节点没有启用的隧道，请先创建隧道')
+    return
+  }
+
   try {
-    await tunnelStore.startFrpc(node.id)
-    await configStore.update({ activeNodeId: node.id })
+    await nodeStore.startFrpc(node.id)
     message.success('frpc 已启动')
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : '启动失败')
+  }
+}
+
+async function handleStop(node: Node) {
+  try {
+    await nodeStore.stopFrpc(node.id)
+    message.success('frpc 已停止')
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : '停止失败')
+  }
+}
+
+async function handleToggleAutoStart(node: Node, enabled: boolean) {
+  try {
+    await nodeStore.updateNode(node.id, { auto_start: enabled ? 1 : 0 })
+    message.success(enabled ? '已启用应用启动时自动启动' : '已禁用自动启动')
+  } catch (err: unknown) {
+    message.error('更新失败')
   }
 }
 </script>
@@ -234,27 +262,20 @@ async function handleStart(node: Node) {
 }
 
 .node-wrapper.active {
-  filter: drop-shadow(0 0 6px rgba(64, 150, 255, 0.35));
+  filter: drop-shadow(0 0 6px rgba(73, 170, 25, 0.35));
 }
 
 .active-badge {
   position: absolute;
   top: -10px;
   left: 14px;
-  background: var(--color-primary);
+  background: var(--color-success);
   color: #fff;
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 2px 10px;
   border-radius: 10px;
   z-index: 1;
-}
-
-.set-active-btn {
-  display: block;
-  width: 100%;
-  margin-top: 6px;
-  font-size: 12px;
 }
 
 .empty-state {

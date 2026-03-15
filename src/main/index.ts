@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { initDatabase } from './db'
+import { initDatabase, listNodesWithAutoStart, listTunnels } from './db'
 import { initConfig, getConfig, setConfig } from './config'
 import { registerNodeHandlers } from './ipc/node'
 import { registerTunnelHandlers } from './ipc/tunnel'
@@ -93,6 +93,39 @@ async function performUpdateCheck(win: BrowserWindow): Promise<void> {
   } catch { /* network errors are silently ignored */ }
 }
 
+async function startAutoStartNodes(win: BrowserWindow): Promise<void> {
+  const autoStartNodes = listNodesWithAutoStart()
+  for (const node of autoStartNodes) {
+    // Only start tunnels that have both enabled=1 and auto_start=1
+    const tunnels = listTunnels(node.id).filter((t) => t.enabled === 1 && t.auto_start === 1)
+    if (tunnels.length > 0) {
+      try {
+        const { frpcManager } = await import('./frpc')
+        const config = {
+          serverAddr: node.host,
+          serverPort: node.port,
+          token: node.token ?? undefined,
+          tunnels: tunnels.map((t) => ({
+            name: t.name,
+            type: t.type,
+            localIP: t.local_ip,
+            localPort: t.local_port,
+            remotePort: t.remote_port ?? undefined,
+            customDomain: t.custom_domain ?? undefined,
+            extraAttrs: (() => {
+              try { return JSON.parse(t.extra_attrs || '{}') as Record<string, string> }
+              catch { return {} }
+            })()
+          }))
+        }
+        frpcManager.start(config, node.id, win)
+      } catch (err) {
+        console.error(`Failed to auto-start node ${node.name}:`, err)
+      }
+    }
+  }
+}
+
 async function startFrpcAutoManagement(win: BrowserWindow): Promise<void> {
   // Auto-download frpc if missing
   if (!checkFrpExists()) {
@@ -100,6 +133,9 @@ async function startFrpcAutoManagement(win: BrowserWindow): Promise<void> {
       await autoDownloadLatest(win)
     } catch { /* ignore, user can manually install */ }
   }
+
+  // Auto-start nodes marked as auto_start
+  await startAutoStartNodes(win)
 
   const cfg = getConfig()
   if (!cfg.autoCheckUpdate) return

@@ -1,7 +1,9 @@
 <template>
   <div class="traffic-chart">
     <div class="chart-header">
-      <span class="chart-title">连接趋势</span>
+      <span class="chart-title">
+        {{ nodeId === 0 ? '全部节点' : nodeName }} - 连接趋势
+      </span>
       <div class="range-tabs">
         <button
           v-for="r in ranges"
@@ -71,8 +73,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useMonitorStore } from '../../stores/monitor'
+import { useNodeStore } from '../../stores/node'
+
+interface Props {
+  nodeId: number // 0 means all nodes
+}
+
+const props = defineProps<Props>()
 
 const monitorStore = useMonitorStore()
+const nodeStore = useNodeStore()
 
 const ranges = [
   { label: '30分钟', value: 30 },
@@ -80,6 +90,12 @@ const ranges = [
   { label: '6小时', value: 360 }
 ]
 const activeRange = ref(60)
+
+const nodeName = computed(() => {
+  if (props.nodeId === 0) return '全部节点'
+  const node = nodeStore.nodes.find((n) => n.id === props.nodeId)
+  return node?.name || `节点 ${props.nodeId}`
+})
 
 const chartEl = ref<HTMLElement | null>(null)
 const width = ref(600)
@@ -105,7 +121,12 @@ onUnmounted(() => {
   resizeObserver?.disconnect()
 })
 
-const points = computed(() => monitorStore.recentTraffic(activeRange.value))
+const points = computed(() => {
+  if (props.nodeId === 0) {
+    return monitorStore.getAggregatedTraffic(activeRange.value)
+  }
+  return monitorStore.getRecentTraffic(props.nodeId, activeRange.value)
+})
 
 const maxVal = computed(() => {
   const max = Math.max(1, ...points.value.map((p) => Math.max(p.connections, p.errors)))

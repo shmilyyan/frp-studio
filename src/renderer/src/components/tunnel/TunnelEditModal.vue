@@ -93,10 +93,19 @@
           <a-row :gutter="24" style="margin-bottom: 12px">
             <a-col :span="12">
               <div class="switch-row">
+                <span class="switch-label">随节点启动</span>
+                <a-switch v-model:checked="form.auto_start" size="small" />
+              </div>
+            </a-col>
+            <a-col :span="12">
+              <div class="switch-row">
                 <span class="switch-label">加密传输</span>
                 <a-switch v-model:checked="advanced.useEncryption" size="small" />
               </div>
             </a-col>
+          </a-row>
+
+          <a-row :gutter="24" style="margin-bottom: 12px">
             <a-col :span="12">
               <div class="switch-row">
                 <span class="switch-label">压缩传输</span>
@@ -222,6 +231,7 @@ const form = ref({
   local_port: 22,
   remote_port: null as number | null,
   custom_domain: '',
+  auto_start: true,
   group_name: '默认分组'
 })
 
@@ -258,6 +268,7 @@ watch(
       local_port: t.local_port,
       remote_port: t.remote_port,
       custom_domain: t.custom_domain ?? '',
+      auto_start: t.auto_start !== 0,
       group_name: t.group_name || '默认分组'
     }
 
@@ -324,6 +335,7 @@ async function handleSave() {
       local_port: form.value.local_port,
       remote_port: form.value.remote_port,
       custom_domain: form.value.custom_domain || null,
+      auto_start: form.value.auto_start ? 1 : 0,
       group_name: form.value.group_name || '默认分组',
       extra_attrs: JSON.stringify(buildExtraAttrs())
     })

@@ -60,6 +60,7 @@ declare global {
     api: {
       node: {
         list(): Promise<unknown[]>
+        listAutoStart(): Promise<unknown[]>
         add(data: unknown): Promise<unknown>
         update(id: number, data: unknown): Promise<unknown>
         delete(id: number): Promise<{ success: boolean }>
@@ -82,16 +83,20 @@ declare global {
       }
       frpc: {
         start(nodeId: number): Promise<FrpcStatus>
-        stop(): Promise<FrpcStatus>
-        status(): Promise<FrpcStatus>
+        stop(nodeId: number): Promise<{ running: false }>
+        status(nodeId: number): Promise<FrpcStatus>
+        statusAll(): Promise<Record<number, FrpcStatus>>
         onLog(
           cb: (data: {
+            nodeId: number
             type: 'stdout' | 'stderr' | 'system' | 'error'
             line: string
             timestamp: number
           }) => void
         ): () => void
-        onStatus(cb: (status: FrpcStatus) => void): () => void
+        onStatus(
+          cb: (data: { nodeId: number; status: FrpcStatus }) => void
+        ): () => void
       }
       system: {
         getFrpVersions(): Promise<FrpVersion[]>

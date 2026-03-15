@@ -196,7 +196,8 @@ export function registerSystemHandlers(): void {
         name: `导入-${serverAddr}`,
         host: serverAddr,
         port: serverPort,
-        token: token
+        token: token,
+        auto_start: 0
       })
     }
 
@@ -224,6 +225,7 @@ export function registerSystemHandlers(): void {
         custom_domain:
           ((proxy['customDomains'] as string[]) || [])[0] || null,
         enabled: 1,
+        auto_start: 1,
         group_name: '导入',
         extra_attrs: '{}'
       })

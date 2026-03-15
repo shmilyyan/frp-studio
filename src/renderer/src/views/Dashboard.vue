@@ -28,13 +28,40 @@
           <div class="stat-label">启用隧道</div>
         </div>
       </div>
-      <div class="stat-card" :class="{ 'stat-card--active': frpcStatus.running }">
-        <div class="stat-icon">{{ frpcStatus.running ? '●' : '○' }}</div>
+      <div class="stat-card" :class="{ 'stat-card--active': runningNodes.length > 0 }">
+        <div class="stat-icon">{{ runningNodes.length > 0 ? '●' : '○' }}</div>
         <div class="stat-body">
-          <div class="stat-value" :class="{ 'text-success': frpcStatus.running }">
-            {{ frpcStatus.running ? '运行中' : '已停止' }}
+          <div class="stat-value" :class="{ 'text-success': runningNodes.length > 0 }">
+            {{ runningNodes.length > 0 ? `${runningNodes.length} 运行中` : '全部停止' }}
           </div>
           <div class="stat-label">frpc 状态</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Running nodes quick list -->
+    <div class="section" v-if="runningNodes.length > 0">
+      <div class="section-header">
+        <h2 class="section-title">运行中的节点</h2>
+        <router-link to="/monitor" class="section-link">查看详情 →</router-link>
+      </div>
+      <div class="running-nodes-list">
+        <div
+          v-for="node in runningNodes"
+          :key="node.id"
+          class="running-node-item"
+        >
+          <div class="running-node-left">
+            <span class="status-dot online"></span>
+            <span class="node-name">{{ node.name }}</span>
+            <span class="node-host">{{ node.host }}:{{ node.port }}</span>
+          </div>
+          <div class="running-node-right">
+            <span class="node-pid">PID: {{ nodeStore.frpcStatuses[node.id]?.pid }}</span>
+            <span class="node-tunnels">
+              {{ tunnelStore.enabledTunnelsByNode(node.id).length }} 条隧道
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -59,6 +86,7 @@
               {{ tunnel.type.toUpperCase() }}
             </a-tag>
             <span class="tunnel-quick-name">{{ tunnel.name }}</span>
+            <span class="tunnel-node-name">{{ getNodeName(tunnel.node_id) }}</span>
           </div>
           <div class="tunnel-quick-right">
             <span class="tunnel-quick-addr">
@@ -87,7 +115,7 @@
         <div v-for="node in nodeStore.nodes" :key="node.id" class="node-quick-item">
           <span
             class="status-dot"
-            :class="frpcStatus.running && frpcStatus.nodeId === node.id ? 'online' : 'offline'"
+            :class="nodeStore.isNodeRunning(node.id) ? 'online' : 'offline'"
           ></span>
           <span class="node-quick-name">{{ node.name }}</span>
           <span class="node-quick-host">{{ node.host }}:{{ node.port }}</span>
@@ -108,12 +136,21 @@ import { useTunnelStore } from '../stores/tunnel'
 const nodeStore = useNodeStore()
 const tunnelStore = useTunnelStore()
 
-const frpcStatus = computed(() => tunnelStore.frpcStatus)
+const runningNodes = computed(() => nodeStore.runningNodes)
 const recentTunnels = computed(() => tunnelStore.tunnels.slice(0, 8))
 
 onMounted(async () => {
-  await Promise.all([nodeStore.fetchNodes(), tunnelStore.fetchTunnels()])
+  await Promise.all([
+    nodeStore.fetchNodes(),
+    tunnelStore.fetchTunnels()
+  ])
+  await nodeStore.fetchAllFrpcStatus()
 })
+
+function getNodeName(nodeId: number): string {
+  const node = nodeStore.nodes.find((n) => n.id === nodeId)
+  return node?.name || '未知'
+}
 
 function typeColor(type: string): string {
   const map: Record<string, string> = { tcp: 'blue', udp: 'purple', http: 'green', https: 'cyan' }
@@ -224,8 +261,13 @@ function typeColor(type: string): string {
   border: 1px dashed var(--color-border);
 }
 
+.empty-hint a {
+  color: var(--color-primary);
+}
+
 .tunnel-quick-list,
-.nodes-quick-list {
+.nodes-quick-list,
+.running-nodes-list {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -233,7 +275,8 @@ function typeColor(type: string): string {
 }
 
 .tunnel-quick-item,
-.node-quick-item {
+.node-quick-item,
+.running-node-item {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -243,7 +286,8 @@ function typeColor(type: string): string {
 }
 
 .tunnel-quick-item:last-child,
-.node-quick-item:last-child {
+.node-quick-item:last-child,
+.running-node-item:last-child {
   border-bottom: none;
 }
 
@@ -257,6 +301,14 @@ function typeColor(type: string): string {
 .tunnel-quick-name,
 .node-quick-name {
   color: var(--color-text-primary);
+}
+
+.tunnel-node-name {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  padding: 2px 6px;
+  background: var(--color-bg-card);
+  border-radius: 4px;
 }
 
 .tunnel-quick-right {
@@ -281,5 +333,65 @@ function typeColor(type: string): string {
 .node-quick-tunnels {
   color: var(--color-text-tertiary);
   font-size: 12px;
+}
+
+.running-nodes-list {
+  margin-bottom: 24px;
+}
+
+.running-node-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.running-node-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.running-node-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.node-name {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.node-host {
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.node-pid {
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: var(--color-success);
+}
+
+.node-tunnels {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.online {
+  background: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.2);
+}
+
+.status-dot.offline {
+  background: var(--color-text-tertiary);
 }
 </style>

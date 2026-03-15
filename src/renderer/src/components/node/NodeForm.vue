@@ -34,6 +34,12 @@
       <a-form-item label="认证 Token（可选）" name="token">
         <a-input-password v-model:value="form.token" placeholder="frps token（留空表示无认证）" />
       </a-form-item>
+      <a-form-item>
+        <a-switch v-model:checked="form.auto_start" />
+        <span style="margin-left: 8px; font-size: 13px; color: var(--color-text-secondary)">
+          应用启动后自动启动 frpc
+        </span>
+      </a-form-item>
     </a-form>
   </a-modal>
 </template>
@@ -62,7 +68,8 @@ const form = ref({
   name: '',
   host: '',
   port: 7000,
-  token: ''
+  token: '',
+  auto_start: false
 })
 
 const rules = {
@@ -81,10 +88,11 @@ watch(
           name: props.node.name,
           host: props.node.host,
           port: props.node.port,
-          token: props.node.token || ''
+          token: props.node.token || '',
+          auto_start: props.node.auto_start === 1
         }
       } else {
-        form.value = { name: '', host: '', port: 7000, token: '' }
+        form.value = { name: '', host: '', port: 7000, token: '', auto_start: false }
       }
     }
   }
@@ -98,7 +106,8 @@ async function handleSubmit() {
       name: form.value.name,
       host: form.value.host,
       port: form.value.port,
-      token: form.value.token || null
+      token: form.value.token || null,
+      auto_start: form.value.auto_start ? 1 : 0
     })
     emit('update:open', false)
   } finally {

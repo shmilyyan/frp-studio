@@ -58,13 +58,24 @@ export function listNodes(): NodeRow[] {
   return rows
 }
 
+export function listNodesWithAutoStart(): NodeRow[] {
+  const stmt = getDb().prepare('SELECT * FROM nodes WHERE auto_start = 1 ORDER BY created_at DESC')
+  const rows: NodeRow[] = []
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject() as unknown as NodeRow)
+  }
+  stmt.free()
+  return rows
+}
+
 export function addNode(data: Omit<NodeRow, 'id' | 'created_at'>): NodeRow {
   const db = getDb()
-  db.run('INSERT INTO nodes (name, host, port, token) VALUES (?, ?, ?, ?)', [
+  db.run('INSERT INTO nodes (name, host, port, token, auto_start) VALUES (?, ?, ?, ?, ?)', [
     data.name,
     data.host,
     data.port,
-    data.token ?? null
+    data.token ?? null,
+    data.auto_start ?? 0
   ])
   saveDatabase()
   const id = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
@@ -131,7 +142,7 @@ export function listGroups(): string[] {
 export function addTunnel(data: Omit<TunnelRow, 'id' | 'created_at'>): TunnelRow {
   const db = getDb()
   db.run(
-    'INSERT INTO tunnels (node_id, name, type, local_ip, local_port, remote_port, custom_domain, enabled, group_name, extra_attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO tunnels (node_id, name, type, local_ip, local_port, remote_port, custom_domain, enabled, auto_start, group_name, extra_attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [
       data.node_id,
       data.name,
@@ -141,6 +152,7 @@ export function addTunnel(data: Omit<TunnelRow, 'id' | 'created_at'>): TunnelRow
       data.remote_port ?? null,
       data.custom_domain ?? null,
       data.enabled ?? 1,
+      data.auto_start ?? 1,
       data.group_name || '默认分组',
       data.extra_attrs || '{}'
     ]

@@ -1,45 +1,87 @@
 <template>
   <div class="log-panel">
     <div class="log-toolbar">
-      <span class="log-count">{{ logs.length }} 条日志</span>
+      <div class="toolbar-left">
+        <a-select
+          v-model:value="selectedNodeId"
+          placeholder="选择节点"
+          style="width: 150px"
+          size="small"
+        >
+          <a-select-option :value="0">全部节点</a-select-option>
+          <a-select-option
+            v-for="node in runningNodes"
+            :key="node.id"
+            :value="node.id"
+          >
+            <span class="node-option">
+              <span class="status-dot online"></span>
+              {{ node.name }}
+            </span>
+          </a-select-option>
+        </a-select>
+        <span class="log-count">{{ displayLogs.length }} 条日志</span>
+      </div>
       <div class="toolbar-actions">
         <a-checkbox v-model:checked="autoScroll" size="small">自动滚动</a-checkbox>
         <a-button size="small" @click="clearLogs">清空</a-button>
-        <a-button size="small" @click="exportLogs">导出</a-button>
+        <a-button size="small" @click="exportLogs" :disabled="displayLogs.length === 0">导出</a-button>
       </div>
     </div>
     <div class="log-container" ref="logContainer">
       <div
-        v-for="log in logs"
-        :key="log.id"
+        v-for="log in displayLogs"
+        :key="`${log.nodeId}-${log.id}`"
         class="log-line"
         :class="log.type"
       >
+        <span class="log-node" v-if="selectedNodeId === 0">{{ getNodeName(log.nodeId) }}</span>
         <span class="log-time">{{ formatTime(log.timestamp) }}</span>
         <span class="log-type-badge">{{ log.type }}</span>
         <span class="log-text">{{ log.line.trimEnd() }}</span>
       </div>
-      <div v-if="logs.length === 0" class="log-empty">
-        暂无日志 · 启动 frpc 后日志将显示在这里
+      <div v-if="displayLogs.length === 0" class="log-empty">
+        暂无日志 · 在节点管理页面启动 frpc 后日志将显示在这里
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useMonitorStore, type LogEntry } from '../../stores/monitor'
+import { useNodeStore } from '../../stores/node'
 import { message } from 'ant-design-vue'
 
 const monitorStore = useMonitorStore()
-const logs = ref<LogEntry[]>(monitorStore.logs)
+const nodeStore = useNodeStore()
+
+const selectedNodeId = ref(0) // 0 means all nodes
 const logContainer = ref<HTMLElement>()
 const autoScroll = ref(true)
 
+const runningNodes = computed(() => nodeStore.runningNodes)
+
+const displayLogs = computed(() => {
+  if (selectedNodeId.value === 0) {
+    // Combine all logs and sort by timestamp
+    const allLogs: LogEntry[] = []
+    for (const node of nodeStore.nodes) {
+      allLogs.push(...monitorStore.getLogs(node.id))
+    }
+    return allLogs.sort((a, b) => a.timestamp - b.timestamp)
+  }
+  return monitorStore.getLogs(selectedNodeId.value)
+})
+
+function getNodeName(nodeId: number): string {
+  const node = nodeStore.nodes.find((n) => n.id === nodeId)
+  return node?.name || `Node ${nodeId}`
+}
+
 watch(
-  () => monitorStore.logs,
-  (newLogs) => {
-    logs.value = newLogs
+  () => displayLogs.value.length,
+  () => {
     if (autoScroll.value) {
       nextTick(() => {
         if (logContainer.value) {
@@ -47,8 +89,7 @@ watch(
         }
       })
     }
-  },
-  { deep: true }
+  }
 )
 
 function formatTime(ts: number): string {
@@ -56,17 +97,27 @@ function formatTime(ts: number): string {
 }
 
 function clearLogs() {
-  monitorStore.clearLogs()
-  logs.value = []
+  if (selectedNodeId.value === 0) {
+    monitorStore.clearLogs()
+  } else {
+    monitorStore.clearLogs(selectedNodeId.value)
+  }
+  message.success('日志已清空')
 }
 
 function exportLogs() {
-  const content = monitorStore.exportLogs()
+  const nodeId = selectedNodeId.value === 0 ? nodeStore.runningNodes[0]?.id : selectedNodeId.value
+  if (!nodeId) {
+    message.warning('没有可导出的日志')
+    return
+  }
+  const content = monitorStore.exportLogs(nodeId)
   const blob = new Blob([content], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `frpc-log-${new Date().toISOString().slice(0, 10)}.txt`
+  const nodeName = getNodeName(nodeId)
+  a.download = `frpc-${nodeName}-log-${new Date().toISOString().slice(0, 10)}.txt`
   a.click()
   URL.revokeObjectURL(url)
   message.success('日志已导出')
@@ -94,6 +145,12 @@ function exportLogs() {
   flex-shrink: 0;
 }
 
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .log-count {
   font-size: 12px;
   color: var(--color-text-tertiary);
@@ -103,6 +160,24 @@ function exportLogs() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.node-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.online {
+  background: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.2);
 }
 
 .log-container {
@@ -136,6 +211,16 @@ function exportLogs() {
 }
 .log-line.stdout .log-text {
   color: #b7eb8f;
+}
+
+.log-node {
+  color: var(--color-primary);
+  font-size: 11px;
+  flex-shrink: 0;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .log-time {

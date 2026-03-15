@@ -10,30 +10,28 @@ export interface Tunnel {
   remote_port: number | null
   custom_domain: string | null
   enabled: number
+  auto_start: number
   group_name: string
   extra_attrs: string  // JSON: Record<string, string>
   created_at: number
-}
-
-export interface FrpcStatus {
-  running: boolean
-  pid?: number
-  nodeId?: number
-  startedAt?: number
 }
 
 export const useTunnelStore = defineStore('tunnel', {
   state: () => ({
     tunnels: [] as Tunnel[],
     groups: [] as string[],
-    frpcStatus: { running: false } as FrpcStatus,
     loading: false
   }),
   getters: {
     enabledTunnels: (state) => state.tunnels.filter((t) => t.enabled === 1),
     tunnelsByNode: (state) => (nodeId: number) => state.tunnels.filter((t) => t.node_id === nodeId),
     tunnelsByGroup: (state) => (group: string) =>
-      state.tunnels.filter((t) => t.group_name === group)
+      state.tunnels.filter((t) => t.group_name === group),
+    enabledTunnelsByNode: (state) => (nodeId: number) =>
+      state.tunnels.filter((t) => t.node_id === nodeId && t.enabled === 1),
+    // 获取节点启动时自动启用的隧道（同时满足 enabled 和 auto_start）
+    autoStartTunnelsByNode: (state) => (nodeId: number) =>
+      state.tunnels.filter((t) => t.node_id === nodeId && t.enabled === 1 && t.auto_start === 1)
   },
   actions: {
     async fetchTunnels(nodeId?: number) {
@@ -82,15 +80,6 @@ export const useTunnelStore = defineStore('tunnel', {
     async bulkDelete(ids: number[]) {
       await window.api.tunnel.bulkDelete(ids)
       this.tunnels = this.tunnels.filter((t) => !ids.includes(t.id))
-    },
-    async startFrpc(nodeId: number) {
-      this.frpcStatus = await window.api.frpc.start(nodeId)
-    },
-    async stopFrpc() {
-      this.frpcStatus = await window.api.frpc.stop()
-    },
-    async fetchFrpcStatus() {
-      this.frpcStatus = await window.api.frpc.status()
     }
   }
 })

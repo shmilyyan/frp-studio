@@ -6,28 +6,6 @@
         <p class="page-subtitle">管理 FRP 转发隧道</p>
       </div>
       <div class="header-actions">
-        <!-- frpc controls -->
-        <template v-if="tunnelStore.frpcStatus.running">
-          <a-button danger @click="stopFrpc">停止 frpc</a-button>
-        </template>
-        <template v-else>
-          <a-select
-            v-model:value="startNodeId"
-            placeholder="选择节点启动"
-            style="width: 150px"
-          >
-            <a-select-option v-for="n in nodeStore.nodes" :key="n.id" :value="n.id">
-              {{ n.name }}
-            </a-select-option>
-          </a-select>
-          <a-button
-            type="primary"
-            :disabled="!startNodeId"
-            @click="startFrpc"
-            :loading="starting"
-          >启动 frpc</a-button>
-        </template>
-
         <!-- Import / Export -->
         <a-dropdown>
           <a-button>
@@ -37,20 +15,13 @@
           <template #overlay>
             <a-menu>
               <a-menu-item @click="handleImport">导入 TOML 配置</a-menu-item>
-              <a-menu-item @click="handleExport(undefined)">导出当前节点</a-menu-item>
+              <a-menu-item @click="handleExport(filterNodeId)">导出选中节点</a-menu-item>
             </a-menu>
           </template>
         </a-dropdown>
 
-        <a-button type="primary" @click="wizardOpen = true">+ 新建隧道</a-button>
+        <a-button type="primary" @click="wizardOpen = true" :disabled="!hasNodes">+ 新建隧道</a-button>
       </div>
-    </div>
-
-    <!-- Status bar -->
-    <div v-if="tunnelStore.frpcStatus.running" class="frpc-status-bar">
-      <span class="status-dot online"></span>
-      <span>frpc 运行中 · PID {{ tunnelStore.frpcStatus.pid }}</span>
-      <span class="status-node" v-if="runningNode">节点: {{ runningNode.name }}</span>
     </div>
 
     <!-- Filter bar -->
@@ -65,19 +36,15 @@
           {{ n.name }}
         </a-select-option>
       </a-select>
+    </div>
 
-      <!-- Batch action bar -->
-      <template v-if="selectedIds.length > 0">
-        <span class="selected-hint">已选 {{ selectedIds.length }} 条</span>
-        <a-button size="small" @click="batchEnable">批量启用</a-button>
-        <a-button size="small" @click="batchDisable">批量停用</a-button>
-        <a-button size="small" danger @click="batchDelete">批量删除</a-button>
-        <a-button size="small" @click="selectedIds = []">取消选择</a-button>
-      </template>
+    <!-- No nodes hint -->
+    <div v-if="!hasNodes" class="empty-hint">
+      请先 <router-link to="/nodes">添加节点</router-link> 后再创建隧道
     </div>
 
     <!-- Grouped tunnel list -->
-    <div class="groups-container">
+    <div v-else class="groups-container">
       <div
         v-for="group in displayGroups"
         :key="group"
@@ -87,9 +54,8 @@
           <span class="group-arrow">{{ collapsedGroups.has(group) ? '▶' : '▼' }}</span>
           <span class="group-name">{{ group }}</span>
           <span class="group-count">
-            {{ runningInGroup(group) }}/{{ tunnelsInGroup(group).length }} 运行中
+            {{ enabledInGroup(group) }}/{{ tunnelsInGroup(group).length }} 启用
           </span>
-          <span class="group-select-all" @click.stop="selectGroup(group)">全选本组</span>
         </div>
 
         <div v-if="!collapsedGroups.has(group)" class="group-body">
@@ -97,18 +63,14 @@
             v-for="tunnel in tunnelsInGroup(group)"
             :key="tunnel.id"
             class="tunnel-row"
-            :class="{ selected: selectedIds.includes(tunnel.id) }"
           >
-            <input
-              type="checkbox"
-              class="tunnel-check"
-              :checked="selectedIds.includes(tunnel.id)"
-              @change="toggleSelect(tunnel.id)"
-            />
             <a-tag :color="typeColor(tunnel.type)" class="type-tag">
               {{ tunnel.type.toUpperCase() }}
             </a-tag>
             <span class="tunnel-name">{{ tunnel.name }}</span>
+            <span class="tunnel-node-badge" :title="getNodeName(tunnel.node_id)">
+              {{ getNodeName(tunnel.node_id) }}
+            </span>
             <span class="tunnel-addr mono">
               {{ tunnel.local_ip }}:{{ tunnel.local_port }}
             </span>
@@ -146,33 +108,26 @@ import { ref, computed, onMounted } from 'vue'
 import { Modal, message } from 'ant-design-vue'
 import { useNodeStore } from '../stores/node'
 import { useTunnelStore, type Tunnel } from '../stores/tunnel'
-import { useConfigStore } from '../stores/config'
 import TunnelWizard from '../components/tunnel/TunnelWizard.vue'
 import TunnelEditModal from '../components/tunnel/TunnelEditModal.vue'
 
 const nodeStore = useNodeStore()
 const tunnelStore = useTunnelStore()
-const configStore = useConfigStore()
 
 const wizardOpen = ref(false)
 const editOpen = ref(false)
 const editingTunnel = ref<Tunnel | null>(null)
 const filterNodeId = ref<number | null>(null)
-const startNodeId = ref<number | null>(null)
-const starting = ref(false)
-const selectedIds = ref<number[]>([])
 const collapsedGroups = ref(new Set<string>())
+
+const hasNodes = computed(() => nodeStore.nodes.length > 0)
 
 onMounted(async () => {
   await Promise.all([
     nodeStore.fetchNodes(),
     tunnelStore.fetchTunnels(),
-    tunnelStore.fetchGroups(),
-    configStore.fetch()
+    tunnelStore.fetchGroups()
   ])
-  if (configStore.activeNodeId) {
-    startNodeId.value = configStore.activeNodeId
-  }
 })
 
 const filteredTunnels = computed(() => {
@@ -191,14 +146,14 @@ function tunnelsInGroup(group: string): Tunnel[] {
   return filteredTunnels.value.filter((t) => (t.group_name || '默认分组') === group)
 }
 
-function runningInGroup(group: string): number {
+function enabledInGroup(group: string): number {
   return tunnelsInGroup(group).filter((t) => t.enabled === 1).length
 }
 
-const runningNode = computed(() => {
-  const id = tunnelStore.frpcStatus.nodeId
-  return id ? nodeStore.nodes.find((n) => n.id === id) : null
-})
+function getNodeName(nodeId: number): string {
+  const node = nodeStore.nodes.find((n) => n.id === nodeId)
+  return node?.name || '未知'
+}
 
 function typeColor(type: string) {
   const map: Record<string, string> = { tcp: 'blue', udp: 'purple', http: 'green', https: 'cyan' }
@@ -211,19 +166,6 @@ function toggleGroup(group: string) {
   } else {
     collapsedGroups.value.add(group)
   }
-}
-
-function toggleSelect(id: number) {
-  const idx = selectedIds.value.indexOf(id)
-  if (idx === -1) selectedIds.value.push(id)
-  else selectedIds.value.splice(idx, 1)
-}
-
-function selectGroup(group: string) {
-  const ids = tunnelsInGroup(group).map((t) => t.id)
-  ids.forEach((id) => {
-    if (!selectedIds.value.includes(id)) selectedIds.value.push(id)
-  })
 }
 
 async function toggleTunnel(tunnel: Tunnel, enabled: boolean) {
@@ -253,52 +195,6 @@ function deleteTunnel(tunnel: Tunnel) {
   })
 }
 
-async function batchEnable() {
-  await tunnelStore.bulkEnable(selectedIds.value)
-  message.success(`已启用 ${selectedIds.value.length} 条隧道`)
-  selectedIds.value = []
-}
-
-async function batchDisable() {
-  await tunnelStore.bulkDisable(selectedIds.value)
-  message.success(`已停用 ${selectedIds.value.length} 条隧道`)
-  selectedIds.value = []
-}
-
-function batchDelete() {
-  const ids = [...selectedIds.value]
-  Modal.confirm({
-    title: '批量删除',
-    content: `确定删除选中的 ${ids.length} 条隧道？`,
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
-    async onOk() {
-      await tunnelStore.bulkDelete(ids)
-      selectedIds.value = []
-      message.success(`已删除 ${ids.length} 条隧道`)
-    }
-  })
-}
-
-async function startFrpc() {
-  if (!startNodeId.value) return
-  starting.value = true
-  try {
-    await tunnelStore.startFrpc(startNodeId.value)
-    await configStore.update({ activeNodeId: startNodeId.value })
-    message.success('frpc 已启动')
-  } catch (err: unknown) {
-    message.error(err instanceof Error ? err.message : '启动失败')
-  } finally {
-    starting.value = false
-  }
-}
-
-async function stopFrpc() {
-  await tunnelStore.stopFrpc()
-  message.success('frpc 已停止')
-}
 
 function handleCreated(_tunnel: Tunnel) {
   tunnelStore.fetchGroups()
@@ -314,9 +210,8 @@ async function handleImport() {
   }
 }
 
-async function handleExport(nodeId: number | undefined) {
-  const activeNode = configStore.activeNodeId
-  const targetId = nodeId ?? activeNode ?? nodeStore.nodes[0]?.id
+async function handleExport(nodeId: number | null | undefined) {
+  const targetId = nodeId ?? nodeStore.nodes[0]?.id
   if (!targetId) {
     message.warning('请先选择或添加节点')
     return
@@ -359,24 +254,6 @@ async function handleExport(nodeId: number | undefined) {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.frpc-status-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  background: rgba(73, 170, 25, 0.08);
-  border: 1px solid rgba(73, 170, 25, 0.2);
-  border-radius: 6px;
-  margin-bottom: 12px;
-  font-size: 13px;
-  color: var(--color-success);
-}
-
-.status-node {
-  color: var(--color-text-secondary);
-  margin-left: 8px;
 }
 
 .filter-bar {
@@ -445,10 +322,6 @@ async function handleExport(nodeId: number | undefined) {
   border-radius: 3px;
 }
 
-.group-select-all:hover {
-  background: rgba(64, 150, 255, 0.1);
-}
-
 .group-body {
   display: flex;
   flex-direction: column;
@@ -467,15 +340,6 @@ async function handleExport(nodeId: number | undefined) {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.tunnel-row.selected {
-  background: rgba(64, 150, 255, 0.06);
-}
-
-.tunnel-check {
-  flex-shrink: 0;
-  accent-color: var(--color-primary);
-}
-
 .type-tag {
   flex-shrink: 0;
   font-size: 11px;
@@ -486,6 +350,18 @@ async function handleExport(nodeId: number | undefined) {
   color: var(--color-text-primary);
   min-width: 120px;
   flex: 1;
+}
+
+.tunnel-node-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--color-bg-card);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tunnel-addr,
@@ -516,16 +392,8 @@ async function handleExport(nodeId: number | undefined) {
   font-size: 13px;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.status-dot.online {
-  background: var(--color-success);
-  box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.2);
+.empty-hint a {
+  color: var(--color-primary);
 }
 
 .mono {

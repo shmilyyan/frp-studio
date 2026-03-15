@@ -2,9 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 const api = {
-  // Node management
+  // Node management (including frpc control)
   node: {
     list: () => ipcRenderer.invoke('node:list'),
+    listAutoStart: () => ipcRenderer.invoke('node:list-auto-start'),
     add: (data: unknown) => ipcRenderer.invoke('node:add', data),
     update: (id: number, data: unknown) => ipcRenderer.invoke('node:update', id, data),
     delete: (id: number) => ipcRenderer.invoke('node:delete', id),
@@ -23,17 +24,18 @@ const api = {
     bulkDisable: (ids: number[]) => ipcRenderer.invoke('tunnel:bulk-disable', ids),
     bulkDelete: (ids: number[]) => ipcRenderer.invoke('tunnel:bulk-delete', ids)
   },
-  // frpc control
+  // frpc control (now per-node)
   frpc: {
     start: (nodeId: number) => ipcRenderer.invoke('frpc:start', nodeId),
-    stop: () => ipcRenderer.invoke('frpc:stop'),
-    status: () => ipcRenderer.invoke('frpc:status'),
-    onLog: (cb: (data: { type: string; line: string; timestamp: number }) => void) => {
+    stop: (nodeId: number) => ipcRenderer.invoke('frpc:stop', nodeId),
+    status: (nodeId: number) => ipcRenderer.invoke('frpc:status', nodeId),
+    statusAll: () => ipcRenderer.invoke('frpc:status-all') as Promise<Record<number, { running: boolean; pid?: number; nodeId?: number; startedAt?: number }>>,
+    onLog: (cb: (data: { nodeId: number; type: string; line: string; timestamp: number }) => void) => {
       ipcRenderer.on('frpc:log', (_e, data) => cb(data))
       return () => ipcRenderer.removeAllListeners('frpc:log')
     },
-    onStatus: (cb: (status: unknown) => void) => {
-      ipcRenderer.on('frpc:status', (_e, status) => cb(status))
+    onStatus: (cb: (data: { nodeId: number; status: { running: boolean; pid?: number; nodeId?: number; startedAt?: number } }) => void) => {
+      ipcRenderer.on('frpc:status', (_e, data) => cb(data))
       return () => ipcRenderer.removeAllListeners('frpc:status')
     }
   },

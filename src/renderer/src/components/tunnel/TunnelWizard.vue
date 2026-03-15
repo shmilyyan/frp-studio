@@ -96,14 +96,23 @@
         <a-collapse ghost class="advanced-collapse">
           <a-collapse-panel key="adv" header="高级配置">
 
-            <!-- 通用：加密 / 压缩 -->
+            <!-- 通用：随节点启动 / 加密 / 压缩 -->
             <a-row :gutter="24" style="margin-bottom: 12px">
+              <a-col :span="12">
+                <div class="switch-row">
+                  <span class="switch-label">随节点启动</span>
+                  <a-switch v-model:checked="form.auto_start" size="small" />
+                </div>
+              </a-col>
               <a-col :span="12">
                 <div class="switch-row">
                   <span class="switch-label">加密传输</span>
                   <a-switch v-model:checked="advanced.useEncryption" size="small" />
                 </div>
               </a-col>
+            </a-row>
+
+            <a-row :gutter="24" style="margin-bottom: 12px">
               <a-col :span="12">
                 <div class="switch-row">
                   <span class="switch-label">压缩传输</span>
@@ -269,7 +278,8 @@ const defaultForm = () => ({
   local_ip: '127.0.0.1',
   local_port: 22,
   remote_port: null as number | null,
-  custom_domain: ''
+  custom_domain: '',
+  auto_start: true
 })
 
 const form = ref(defaultForm())
@@ -457,6 +467,7 @@ async function handleCreate() {
       remote_port: form.value.remote_port,
       custom_domain: form.value.custom_domain || null,
       enabled: 1,
+      auto_start: form.value.auto_start ? 1 : 0,
       group_name: '默认分组',
       extra_attrs: JSON.stringify(buildExtraAttrs())
     })

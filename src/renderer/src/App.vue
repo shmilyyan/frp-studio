@@ -29,12 +29,12 @@ import AppHeader from './components/layout/AppHeader.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import { darkTheme } from './styles/theme'
 import { useMonitorStore } from './stores/monitor'
-import { useTunnelStore } from './stores/tunnel'
+import { useNodeStore } from './stores/node'
 import { useUpdateStore } from './stores/update'
 import { message } from 'ant-design-vue'
 
 const monitorStore = useMonitorStore()
-const tunnelStore = useTunnelStore()
+const nodeStore = useNodeStore()
 const updateStore = useUpdateStore()
 
 let removeListeners: Array<() => void> = []
@@ -42,12 +42,16 @@ let removeListeners: Array<() => void> = []
 onMounted(() => {
   removeListeners.push(
     window.api.frpc.onLog((data) => {
-      monitorStore.addLog(data)
+      monitorStore.addLog(data.nodeId, {
+        type: data.type as 'stdout' | 'stderr' | 'system' | 'error',
+        line: data.line,
+        timestamp: data.timestamp
+      })
     })
   )
   removeListeners.push(
-    window.api.frpc.onStatus((status) => {
-      tunnelStore.frpcStatus = status as typeof tunnelStore.frpcStatus
+    window.api.frpc.onStatus((data) => {
+      nodeStore.updateFrpcStatus(data.nodeId, data.status)
     })
   )
   removeListeners.push(

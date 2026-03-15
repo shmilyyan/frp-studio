@@ -7,35 +7,68 @@
       </div>
     </div>
 
-    <!-- Stats row -->
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-value" :class="{ running: frpcStatus.running }">
-          {{ frpcStatus.running ? '运行中' : '已停止' }}
+    <!-- Running nodes summary -->
+    <div class="nodes-summary">
+      <div v-if="runningNodes.length === 0" class="no-running">
+        <span class="no-running-icon">○</span>
+        <span>暂无运行中的节点</span>
+        <router-link to="/nodes">前往节点管理</router-link>
+      </div>
+      <div v-else class="running-nodes-grid">
+        <!-- All nodes option -->
+        <div
+          class="running-node-card all-nodes"
+          :class="{ active: selectedNodeId === 0 }"
+          @click="selectedNodeId = 0"
+        >
+          <div class="node-header">
+            <span class="status-dot" :class="runningNodes.length > 0 ? 'online' : 'offline'"></span>
+            <span class="node-name">全部节点</span>
+          </div>
+          <div class="node-stats">
+            <div class="node-stat">
+              <span class="stat-value">{{ runningNodes.length }}</span>
+              <span class="stat-label">运行中</span>
+            </div>
+            <div class="node-stat">
+              <span class="stat-value">{{ totalTunnels }}</span>
+              <span class="stat-label">隧道数</span>
+            </div>
+          </div>
         </div>
-        <div class="stat-label">frpc 状态</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ frpcStatus.pid || '-' }}</div>
-        <div class="stat-label">进程 PID</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ enabledCount }}</div>
-        <div class="stat-label">启用隧道数</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ totalConnections }}</div>
-        <div class="stat-label">连接次数</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ runningTime }}</div>
-        <div class="stat-label">运行时长</div>
+        <!-- Individual nodes -->
+        <div
+          v-for="node in runningNodes"
+          :key="node.id"
+          class="running-node-card"
+          :class="{ active: selectedNodeId === node.id }"
+          @click="selectedNodeId = node.id"
+        >
+          <div class="node-header">
+            <span class="status-dot online"></span>
+            <span class="node-name">{{ node.name }}</span>
+          </div>
+          <div class="node-stats">
+            <div class="node-stat">
+              <span class="stat-value">{{ getFrpcStatus(node.id)?.pid || '-' }}</span>
+              <span class="stat-label">PID</span>
+            </div>
+            <div class="node-stat">
+              <span class="stat-value">{{ getRunningTime(node.id) }}</span>
+              <span class="stat-label">运行时长</span>
+            </div>
+            <div class="node-stat">
+              <span class="stat-value">{{ getEnabledTunnelCount(node.id) }}</span>
+              <span class="stat-label">隧道数</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Traffic chart -->
     <div class="chart-section">
-      <TrafficChart />
+      <TrafficChart :node-id="selectedNodeId" />
     </div>
 
     <!-- Log panel -->
@@ -46,37 +79,63 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useNodeStore, type FrpcStatus } from '../stores/node'
 import { useTunnelStore } from '../stores/tunnel'
-import { useMonitorStore } from '../stores/monitor'
 import LogPanel from '../components/monitor/LogPanel.vue'
 import TrafficChart from '../components/monitor/TrafficChart.vue'
 
+const nodeStore = useNodeStore()
 const tunnelStore = useTunnelStore()
-const monitorStore = useMonitorStore()
 
-const frpcStatus = computed(() => tunnelStore.frpcStatus)
-const enabledCount = computed(() => tunnelStore.enabledTunnels.length)
-const totalConnections = computed(() =>
-  monitorStore.traffic.reduce((sum, p) => sum + p.connections, 0)
-)
-
-const runningTime = ref('-')
+const selectedNodeId = ref(0)
+const runningTimes = ref(new Map<number, string>())
 let timer: ReturnType<typeof setInterval>
 
-onMounted(() => {
-  timer = setInterval(() => {
-    if (frpcStatus.value.running && frpcStatus.value.startedAt) {
-      const ms = Date.now() - frpcStatus.value.startedAt
+const runningNodes = computed(() => nodeStore.runningNodes)
+
+const totalTunnels = computed(() => {
+  return runningNodes.value.reduce((sum, node) => sum + getEnabledTunnelCount(node.id), 0)
+})
+
+function getFrpcStatus(nodeId: number): FrpcStatus | undefined {
+  return nodeStore.frpcStatuses[nodeId]
+}
+
+function getEnabledTunnelCount(nodeId: number): number {
+  return tunnelStore.enabledTunnelsByNode(nodeId).length
+}
+
+function getRunningTime(nodeId: number): string {
+  return runningTimes.value.get(nodeId) || '-'
+}
+
+function updateRunningTimes() {
+  for (const node of nodeStore.nodes) {
+    const status = nodeStore.frpcStatuses[node.id]
+    if (status?.running && status.startedAt) {
+      const ms = Date.now() - status.startedAt
       const s = Math.floor(ms / 1000)
       const m = Math.floor(s / 60)
       const h = Math.floor(m / 60)
-      runningTime.value =
+      runningTimes.value.set(
+        node.id,
         h > 0 ? `${h}h ${m % 60}m` : m > 0 ? `${m}m ${s % 60}s` : `${s}s`
+      )
     } else {
-      runningTime.value = '-'
+      runningTimes.value.delete(node.id)
     }
-  }, 1000)
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([
+    nodeStore.fetchNodes(),
+    nodeStore.fetchAllFrpcStatus(),
+    tunnelStore.fetchTunnels()
+  ])
+  updateRunningTimes()
+  timer = setInterval(updateRunningTimes, 1000)
 })
 
 onUnmounted(() => clearInterval(timer))
@@ -108,39 +167,104 @@ onUnmounted(() => clearInterval(timer))
   margin: 0;
 }
 
-.stats-row {
-  display: flex;
-  gap: 12px;
+.nodes-summary {
   margin-bottom: 14px;
   flex-shrink: 0;
 }
 
-.stat-card {
-  flex: 1;
+.no-running {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--color-bg-elevated);
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.no-running-icon {
+  font-size: 20px;
+  color: var(--color-text-tertiary);
+}
+
+.no-running a {
+  color: var(--color-primary);
+  margin-left: auto;
+}
+
+.running-nodes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.running-node-card {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 12px 16px;
-  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s;
 }
 
-.stat-value {
-  font-size: 20px;
-  font-weight: 700;
+.running-node-card:hover {
+  border-color: var(--color-primary);
+}
+
+.running-node-card.active {
+  border-color: var(--color-success);
+  background: rgba(73, 170, 25, 0.05);
+}
+
+.node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.node-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.node-stats {
+  display: flex;
+  gap: 16px;
+}
+
+.node-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.node-stat .stat-value {
+  font-size: 14px;
+  font-weight: 600;
   color: var(--color-text-primary);
   font-family: 'Consolas', monospace;
 }
 
-.stat-value.running {
-  color: var(--color-success);
+.node-stat .stat-label {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
 }
 
-.stat-label {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  margin-top: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.online {
+  background: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.2);
 }
 
 .chart-section {

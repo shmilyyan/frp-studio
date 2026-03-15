@@ -16,9 +16,11 @@
       </router-link>
     </nav>
     <div class="sidebar-footer">
-      <div class="frpc-indicator" :class="{ running: frpcStatus.running }">
-        <span class="status-dot" :class="frpcStatus.running ? 'online' : 'offline'"></span>
-        <span class="indicator-text">{{ frpcStatus.running ? 'frpc 运行中' : 'frpc 已停止' }}</span>
+      <div class="frpc-indicator" :class="{ running: runningCount > 0 }">
+        <span class="status-dot" :class="runningCount > 0 ? 'online' : 'offline'"></span>
+        <span class="indicator-text">
+          {{ runningCount > 0 ? `${runningCount} 个节点运行中` : 'frpc 已停止' }}
+        </span>
       </div>
     </div>
   </aside>
@@ -27,15 +29,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useTunnelStore } from '../../stores/tunnel'
+import { useNodeStore } from '../../stores/node'
 import { useUpdateStore } from '../../stores/update'
 
 const route = useRoute()
-const tunnelStore = useTunnelStore()
+const nodeStore = useNodeStore()
 const updateStore = useUpdateStore()
 
 const currentPath = computed(() => route.path)
-const frpcStatus = computed(() => tunnelStore.frpcStatus)
+const runningCount = computed(() => nodeStore.runningNodes.length)
 
 const navItems = [
   { path: '/dashboard', label: '仪表盘', icon: '◈' },
@@ -141,5 +143,21 @@ const navItems = [
 
 .frpc-indicator.running .indicator-text {
   color: var(--color-success);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.online {
+  background: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.2);
+}
+
+.status-dot.offline {
+  background: var(--color-text-tertiary);
 }
 </style>
