@@ -59,6 +59,14 @@ FRP Studio is a desktop GUI application for managing [frpc](https://github.com/f
 - HTTP / HTTPS / SOCKS5 proxy support for downloads
 - Windows Service install / uninstall / start / stop
 
+#### Device Handoff (iOS ↔ Windows)
+- **Clipboard sharing**: copy on one device, paste on the other
+- **File transfer**: send files between iOS and Windows over LAN or FRP tunnel
+- **Device discovery**: automatic LAN discovery via mDNS (Bonjour)
+- **QR code pairing**: scan to pair, public-key authenticated
+- **Background service**: HandoffService runs independently, survives app restart
+- **iOS companion app**: SwiftUI app with Share Extension (built via GitHub Actions)
+
 ### Installation
 
 Download the latest installer from the [Releases](../../releases) page:
@@ -104,7 +112,9 @@ Output: `dist/Frper Setup x.x.x.exe`
 | State Management | Pinia |
 | Database | sql.js (SQLite via WASM) |
 | Config Format | TOML (@iarna/toml) |
-| Build Tool | electron-vite + Vite 6 |
+| Handoff Service | Node.js standalone process (ws, multicast-dns) |
+| iOS App | SwiftUI + Network framework (built via GitHub Actions) |
+| Build Tool | electron-vite + Vite 6 + esbuild |
 | Packager | electron-builder 25 |
 
 ### Project Structure
@@ -112,19 +122,35 @@ Output: `dist/Frper Setup x.x.x.exe`
 ```
 src/
 ├── main/               # Electron main process
-│   ├── ipc/            # IPC handlers (node, tunnel, system)
+│   ├── ipc/            # IPC handlers (node, tunnel, system, handoff)
 │   ├── db/             # SQLite database (sql.js)
 │   ├── frpc.ts         # frpc process management
 │   ├── downloader.ts   # FRP version download & backup
 │   ├── winsvc.ts       # Windows Service management
-│   └── tray.ts         # System tray
+│   ├── tray.ts         # System tray
+│   ├── handoff-service-manager.ts  # HandoffService process lifecycle
+│   └── handoff-ipc-client.ts       # HTTP+SSE client for HandoffService
+├── handoff-service/    # Standalone background service (Node.js)
+│   ├── index.ts        # Entry point
+│   ├── http-server.ts  # HTTP + SSE server
+│   ├── ws-server.ts    # WebSocket server
+│   ├── mdns.ts         # mDNS/Bonjour broadcast
+│   ├── clipboard.ts    # Clipboard watcher
+│   ├── file-transfer.ts # Chunked file transfer
+│   ├── crypto.ts       # RSA key pair + signatures
+│   └── pairing.ts      # Device pairing workflow
 ├── preload/            # Preload scripts
-└── renderer/           # Vue 3 frontend
-    └── src/
-        ├── views/      # Pages (Dashboard, Nodes, Tunnels, Monitor, Settings)
-        ├── components/ # Reusable components
-        ├── stores/     # Pinia stores
-        └── router/     # Vue Router
+├── renderer/           # Vue 3 frontend
+│   └── src/
+│       ├── views/      # Pages (Dashboard, Nodes, Tunnels, Monitor, Handoff, Settings)
+│       ├── components/ # Reusable components
+│       ├── stores/     # Pinia stores
+│       └── router/     # Vue Router
+└── ios/                # iOS companion app (SwiftUI)
+    └── HandoffApp/
+        ├── Views/      # ContentView, PairingView
+        ├── Services/   # Connection, Discovery, Clipboard
+        └── ShareExtension/  # System share sheet integration
 ```
 
 ### License
@@ -177,6 +203,14 @@ FRP Studio 是一款用于管理 [frpc](https://github.com/fatedier/frp) 客户�
 - 代理设置（HTTP / HTTPS / SOCKS5），用于版本下载和更新检测
 - Windows 服务管理（安装、卸载、启动、停止）
 
+#### 设备接力（iOS ↔ Windows）
+- **剪贴板共享**：一端复制，另一端粘贴
+- **文件传输**：通过局域网或 FRP 隧道在 iOS 和 Windows 间传输文件
+- **设备发现**：局域网 mDNS（Bonjour）自动发现
+- **二维码配对**：扫码配对，公钥认证
+- **后台服务**：HandoffService 独立运行，应用关闭后仍保持连接
+- **iOS 伴侣应用**：SwiftUI 应用 + Share Extension（GitHub Actions 构建）
+
 ### 安装
 
 从 [Releases](../../releases) 页面下载最新版本：
@@ -222,7 +256,9 @@ pnpm build
 | 状态管理 | Pinia |
 | 数据库 | sql.js（SQLite WASM，免编译） |
 | 配置格式 | TOML（@iarna/toml） |
-| 构建工具 | electron-vite + Vite 6 |
+| 接力服务 | Node.js 独立进程（ws, multicast-dns） |
+| iOS 应用 | SwiftUI + Network framework（GitHub Actions 构建） |
+| 构建工具 | electron-vite + Vite 6 + esbuild |
 | 打包工具 | electron-builder 25 |
 
 ### 开源协议
