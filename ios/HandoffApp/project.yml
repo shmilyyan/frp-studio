@@ -1,0 +1,40 @@
+name: HandoffApp
+options:
+  bundleIdPrefix: com.frper
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  HandoffApp:
+    type: application
+    platform: iOS
+    sources:
+      - HandoffApp
+    settings:
+      base:
+        INFOPLIST_FILE: ""
+        PRODUCT_BUNDLE_IDENTIFIER: com.frper.handoff
+        GENERATE_INFOPLIST_FILE: "YES"
+        SWIFT_VERSION: "5.0"
+    dependencies: []
+
+  ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - ShareExtension
+    settings:
+      base:
+        INFOPLIST_FILE: ShareExtension/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.frper.handoff.extension
+        GENERATE_INFOPLIST_FILE: "NO"
+        SWIFT_VERSION: "5.0"
+    dependencies: []
