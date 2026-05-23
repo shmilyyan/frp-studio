@@ -17,12 +17,17 @@ targets:
     type: application
     platform: iOS
     sources:
-      - HandoffApp
+      - path: HandoffApp
+        excludes:
+          - Assets.xcassets
+      - path: HandoffApp/Assets.xcassets
+        type: group
     settings:
       base:
         INFOPLIST_FILE: HandoffApp/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.frper.handoff
         GENERATE_INFOPLIST_FILE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.0"
     dependencies: []
 
