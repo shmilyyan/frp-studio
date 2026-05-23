@@ -65,14 +65,9 @@ export const useHandoffStore = defineStore('handoff', () => {
     devices.value = (await window.api.handoff.listDevices()) as PairedDevice[]
   }
 
-  async function deleteDevice(id: number): Promise<void> {
-    await window.api.handoff.deleteDevice(id)
-    devices.value = devices.value.filter((d) => d.id !== id)
-  }
-
-  async function updateDevice(id: number, data: { device_name?: string; enabled?: number }): Promise<void> {
-    await window.api.handoff.updateDevice(id, data)
-    await fetchDevices()
+  async function deleteDevice(deviceId: string): Promise<void> {
+    await window.api.handoff.deleteDevice(deviceId)
+    devices.value = devices.value.filter((d) => d.device_id !== deviceId)
   }
 
   async function generatePairing(deviceName: string, devicePublicKey: string): Promise<{ success: boolean; qrData?: string; error?: string }> {
@@ -119,7 +114,7 @@ export const useHandoffStore = defineStore('handoff', () => {
     serviceStatus, serviceUptime, serviceConnections, devices, transferHistory,
     isRunning,
     fetchServiceStatus, startService, stopService, restartService,
-    fetchDevices, deleteDevice, updateDevice, generatePairing,
+    fetchDevices, deleteDevice, generatePairing,
     fetchTransferHistory, clearHistory,
     connectSSE, disconnectSSE
   }

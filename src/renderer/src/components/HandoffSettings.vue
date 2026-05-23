@@ -43,25 +43,25 @@ const saved = ref(false)
 onMounted(async () => {
   try {
     const status = await window.api.handoff.serviceStatus()
-    if (status.health) {
-      // Populate with current config values when available
+    if (status.health?.config) {
+      const c = status.health.config
+      deviceName.value = c.deviceName || 'My-Windows-PC'
+      servicePort.value = c.port || 19528
+      downloadDir.value = c.downloadDir || 'Downloads/FrpTransfer'
+      clipboardMaxSize.value = c.clipboardMaxSize || 1048576
+      frpTunnelEnabled.value = c.frpTunnelEnabled || false
     }
   } catch { /* service may not be running */ }
 })
 
 async function handleSave(): Promise<void> {
+  saved.value = false
   try {
-    await window.api.config.set({
-      handoffDeviceName: deviceName.value,
-      handoffPort: servicePort.value,
-      handoffDownloadDir: downloadDir.value,
-      handoffClipboardMaxSize: clipboardMaxSize.value,
-      handoffFrpTunnelEnabled: frpTunnelEnabled.value
-    } as unknown as Partial<import('../stores/config').AppConfig>)
+    await window.api.handoff.notifyConfig()
     saved.value = true
     setTimeout(() => { saved.value = false }, 3000)
   } catch {
-    // Silently handle
+    // silently handle
   }
 }
 </script>

@@ -94,13 +94,13 @@ const api = {
     restartService: () => ipcRenderer.invoke('handoff:restart-service'),
     serviceStatus: () => ipcRenderer.invoke('handoff:service-status'),
     listDevices: () => ipcRenderer.invoke('handoff:list-devices'),
-    deleteDevice: (id: number) => ipcRenderer.invoke('handoff:delete-device', id),
-    updateDevice: (id: number, data: unknown) => ipcRenderer.invoke('handoff:update-device', id, data),
+    deleteDevice: (deviceId: string) => ipcRenderer.invoke('handoff:delete-device', deviceId),
     generatePairing: (deviceName: string, devicePublicKey: string) =>
       ipcRenderer.invoke('handoff:generate-pairing', deviceName, devicePublicKey),
     transferHistory: (type?: string, limit?: number) =>
       ipcRenderer.invoke('handoff:transfer-history', type, limit),
     clearHistory: () => ipcRenderer.invoke('handoff:clear-history'),
+    notifyConfig: () => ipcRenderer.invoke('handoff:notify-config'),
     connectSSE: () => ipcRenderer.invoke('handoff:connect-sse'),
     disconnectSSE: () => ipcRenderer.invoke('handoff:disconnect-sse'),
     onEvent: (cb: (data: { event: string; data: unknown }) => void) => {

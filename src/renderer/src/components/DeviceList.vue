@@ -26,7 +26,7 @@
             </template>
           </a-list-item-meta>
           <template #actions>
-            <a-button size="small" type="link" danger @click="handleDelete(item.id)">解除配对</a-button>
+            <a-button size="small" type="link" danger @click="handleDelete(item.device_id)">解除配对</a-button>
           </template>
         </a-list-item>
       </template>
@@ -44,7 +44,7 @@ import PairingQRModal from './PairingQRModal.vue'
 const store = useHandoffStore()
 const showQRModal = ref(false)
 
-async function handleDelete(id: number): Promise<void> {
-  await store.deleteDevice(id)
+async function handleDelete(deviceId: string): Promise<void> {
+  await store.deleteDevice(deviceId)
 }
 </script>

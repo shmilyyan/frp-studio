@@ -1,8 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import {
-  listPairedDevices,
-  updatePairedDevice,
-  deletePairedDevice,
   listTransferHistory,
   clearTransferHistory
 } from '../db'
@@ -15,6 +12,8 @@ import {
 } from '../handoff-service-manager'
 import {
   getHealth,
+  getPairedDevices,
+  notifyConfigChanged,
   generatePairingQR,
   revokeDevice as revokeServiceDevice,
   connectSSE,
@@ -53,29 +52,31 @@ export function registerHandoffHandlers(): void {
   // ─── Paired devices ─────────────────────────────────────────────────────
 
   ipcMain.handle('handoff:list-devices', async () => {
-    return listPairedDevices()
-  })
-
-  ipcMain.handle('handoff:delete-device', async (_e, id: number) => {
-    const devices = listPairedDevices()
-    const device = devices.find((d) => d.id === id)
-    if (device) {
-      await revokeServiceDevice(device.device_id).catch(() => {})
-      deletePairedDevice(id)
+    try {
+      return await getPairedDevices()
+    } catch {
+      return []
     }
-    return { success: true }
   })
 
-  ipcMain.handle('handoff:update-device', async (_e, id: number, data: { device_name?: string; enabled?: number }) => {
-    updatePairedDevice(id, data)
+  ipcMain.handle('handoff:delete-device', async (_e, deviceId: string) => {
+    const result = await revokeServiceDevice(deviceId)
+    return result
+  })
+
+  ipcMain.handle('handoff:notify-config', async () => {
+    await notifyConfigChanged()
     return { success: true }
   })
 
   // ─── Pairing ────────────────────────────────────────────────────────────
 
   ipcMain.handle('handoff:generate-pairing', async (_e, deviceName: string, devicePublicKey: string) => {
-    const result = await generatePairingQR(deviceName, devicePublicKey)
-    return result
+    try {
+      return await generatePairingQR(deviceName, devicePublicKey)
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
   })
 
   // ─── Transfer history ───────────────────────────────────────────────────

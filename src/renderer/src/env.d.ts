@@ -138,14 +138,17 @@ declare global {
         serviceStatus(): Promise<{
           status: 'running' | 'stopped'
           uptime: number
-          health: { status: string; uptime: number; connections: number; version: string } | null
+          health: {
+            status: string; uptime: number; connections: number; version: string
+            config?: { deviceName?: string; port?: number; downloadDir?: string; clipboardMaxSize?: number; frpTunnelEnabled?: boolean }
+          } | null
         }>
         listDevices(): Promise<unknown[]>
-        deleteDevice(id: number): Promise<{ success: boolean }>
-        updateDevice(id: number, data: { device_name?: string; enabled?: number }): Promise<{ success: boolean }>
+        deleteDevice(deviceId: string): Promise<{ success: boolean }>
         generatePairing(deviceName: string, devicePublicKey: string): Promise<{ success: boolean; qrData?: string; error?: string }>
         transferHistory(type?: string, limit?: number): Promise<unknown[]>
         clearHistory(): Promise<{ success: boolean }>
+        notifyConfig(): Promise<{ success: boolean }>
         connectSSE(): Promise<void>
         disconnectSSE(): Promise<void>
         onEvent(cb: (data: { event: string; data: unknown }) => void): () => void
