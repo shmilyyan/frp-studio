@@ -44,6 +44,7 @@ const navItems = [
   { path: '/nodes', label: '节点管理', icon: '◉' },
   { path: '/tunnels', label: '隧道管理', icon: '⇋' },
   { path: '/monitor', label: '监控面板', icon: '◎' },
+  { path: '/handoff', label: '设备接力', icon: '⟐' },
   { path: '/settings', label: '系统设置', icon: '⚙' }
 ]
 </script>

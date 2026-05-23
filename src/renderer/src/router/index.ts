@@ -31,6 +31,11 @@ const router = createRouter({
       path: '/settings',
       name: 'Settings',
       component: () => import('../views/Settings.vue')
+    },
+    {
+      path: '/handoff',
+      name: 'Handoff',
+      component: () => import('../views/HandoffView.vue')
     }
   ]
 })
