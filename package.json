@@ -28,6 +28,7 @@
     "https-proxy-agent": "^7.0.6",
     "multicast-dns": "^7.2.5",
     "pinia": "^2.2.6",
+    "qrcode": "^1.5.4",
     "sql.js": "^1.12.0",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0",
@@ -71,20 +72,13 @@
       "target": "AppImage"
     }
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "core-js",
-      "electron",
-      "esbuild",
-      "vue-demi"
-    ]
-  },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^2.0.0",
     "@electron-toolkit/eslint-config-ts": "^2.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@types/multicast-dns": "^7.2.4",
     "@types/node": "^22.10.5",
+    "@types/qrcode": "^1.5.6",
     "@types/sql.js": "^1.4.9",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-vue": "^5.2.1",

@@ -21,6 +21,7 @@
 import { ref, watch, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
 import { useHandoffStore } from '../stores/handoff'
+import QRCode from 'qrcode'
 
 const props = defineProps<{ open: boolean }>()
 defineEmits<{ close: [] }>()
@@ -54,19 +55,8 @@ async function handleRefresh(): Promise<void> {
 }
 
 function drawQR(canvas: HTMLCanvasElement, data: string): void {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  // Simple QR placeholder — install 'qrcode' package for real QR rendering:
-  // pnpm add qrcode && pnpm add -D @types/qrcode
-  // Then: import QRCode from 'qrcode'; QRCode.toCanvas(canvas, data);
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, 256, 256)
-  ctx.fillStyle = '#000'
-  ctx.font = '12px monospace'
-  ctx.textAlign = 'center'
-  const lines = data.match(/.{1,40}/g) || [data]
-  lines.forEach((line, i) => {
-    ctx.fillText(line, 128, 120 + i * 16)
+  QRCode.toCanvas(canvas, data, { width: 256 }, (err) => {
+    if (err) message.error('二维码生成失败')
   })
 }
 </script>
