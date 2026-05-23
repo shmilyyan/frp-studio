@@ -20,9 +20,9 @@ targets:
       - HandoffApp
     settings:
       base:
-        INFOPLIST_FILE: ""
+        INFOPLIST_FILE: HandoffApp/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.frper.handoff
-        GENERATE_INFOPLIST_FILE: "YES"
+        GENERATE_INFOPLIST_FILE: "NO"
         SWIFT_VERSION: "5.0"
     dependencies: []
 
