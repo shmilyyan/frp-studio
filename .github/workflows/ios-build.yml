@@ -9,14 +9,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install xcodegen
-        run: brew install xcodegen
-
-      - name: Select Xcode and generate project
+      - name: Install xcodegen (via mint - builds from source)
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.4.app
+          brew install mint
+          mint install yonaskolb/XcodeGen@2.42.0
+
+      - name: Generate Xcode project
+        run: |
           cd ios/HandoffApp
-          xcodegen generate
+          mint run xcodegen generate
 
       - name: Build iOS App
         run: |
