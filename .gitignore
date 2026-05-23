@@ -4,3 +4,5 @@ out
 .DS_Store
 *.local
 .superpowers
+handoff.json
+handoff-identity.json
