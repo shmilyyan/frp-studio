@@ -24,6 +24,28 @@ CREATE TABLE IF NOT EXISTS tunnels (
   extra_attrs TEXT DEFAULT '{}',
   created_at  INTEGER DEFAULT (strftime('%s','now'))
 );
+
+CREATE TABLE IF NOT EXISTS paired_devices (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id   TEXT UNIQUE NOT NULL,
+  device_name TEXT NOT NULL,
+  platform    TEXT NOT NULL DEFAULT 'ios',
+  public_key  TEXT NOT NULL,
+  paired_at   INTEGER DEFAULT (strftime('%s','now')),
+  last_seen   INTEGER DEFAULT (strftime('%s','now')),
+  enabled     INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS transfer_history (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id   INTEGER REFERENCES paired_devices(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL,
+  direction   TEXT NOT NULL,
+  detail      TEXT DEFAULT '',
+  size        INTEGER DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'success',
+  created_at  INTEGER DEFAULT (strftime('%s','now'))
+);
 `
 
 export const MIGRATIONS: string[] = [
@@ -56,5 +78,27 @@ export interface TunnelRow {
   auto_start: number
   group_name: string
   extra_attrs: string  // JSON: { [key: string]: string }
+  created_at: number
+}
+
+export interface PairedDeviceRow {
+  id: number
+  device_id: string
+  device_name: string
+  platform: string
+  public_key: string
+  paired_at: number
+  last_seen: number
+  enabled: number
+}
+
+export interface TransferHistoryRow {
+  id: number
+  device_id: number
+  type: string
+  direction: string
+  detail: string
+  size: number
+  status: string
   created_at: number
 }

@@ -2,7 +2,7 @@ import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import initSqlJs, { Database } from 'sql.js'
-import { CREATE_TABLES_SQL, MIGRATIONS, NodeRow, TunnelRow } from './schema'
+import { CREATE_TABLES_SQL, MIGRATIONS, NodeRow, TunnelRow, PairedDeviceRow, TransferHistoryRow } from './schema'
 
 let db: Database | null = null
 let dbPath: string
@@ -203,5 +203,127 @@ export function bulkDeleteTunnels(ids: number[]): void {
   const db = getDb()
   const placeholders = ids.map(() => '?').join(',')
   db.run(`DELETE FROM tunnels WHERE id IN (${placeholders})`, ids)
+  saveDatabase()
+}
+
+// ─── Paired Device operations ────────────────────────────────────────────────
+
+export function listPairedDevices(): PairedDeviceRow[] {
+  const stmt = getDb().prepare('SELECT * FROM paired_devices ORDER BY paired_at DESC')
+  const rows: PairedDeviceRow[] = []
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject() as unknown as PairedDeviceRow)
+  }
+  stmt.free()
+  return rows
+}
+
+export function getPairedDeviceByDeviceId(deviceId: string): PairedDeviceRow | null {
+  const stmt = getDb().prepare('SELECT * FROM paired_devices WHERE device_id = ?')
+  stmt.bind([deviceId])
+  if (stmt.step()) {
+    const row = stmt.getAsObject() as unknown as PairedDeviceRow
+    stmt.free()
+    return row
+  }
+  stmt.free()
+  return null
+}
+
+export function addPairedDevice(data: {
+  device_id: string
+  device_name: string
+  platform: string
+  public_key: string
+}): PairedDeviceRow {
+  const db = getDb()
+  db.run(
+    'INSERT INTO paired_devices (device_id, device_name, platform, public_key) VALUES (?, ?, ?, ?)',
+    [data.device_id, data.device_name, data.platform, data.public_key]
+  )
+  saveDatabase()
+  const id = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
+  return getPairedDeviceById(id)!
+}
+
+export function getPairedDeviceById(id: number): PairedDeviceRow | null {
+  const stmt = getDb().prepare('SELECT * FROM paired_devices WHERE id = ?')
+  stmt.bind([id])
+  if (stmt.step()) {
+    const row = stmt.getAsObject() as unknown as PairedDeviceRow
+    stmt.free()
+    return row
+  }
+  stmt.free()
+  return null
+}
+
+export function updatePairedDevice(id: number, data: Partial<{
+  device_name: string
+  last_seen: number
+  enabled: number
+}>): void {
+  const fields = Object.keys(data).map((k) => `${k} = ?`).join(', ')
+  getDb().run(`UPDATE paired_devices SET ${fields} WHERE id = ?`, [...Object.values(data), id])
+  saveDatabase()
+}
+
+export function deletePairedDevice(id: number): void {
+  getDb().run('DELETE FROM paired_devices WHERE id = ?', [id])
+  saveDatabase()
+}
+
+// ─── Transfer History operations ─────────────────────────────────────────────
+
+export function listTransferHistory(limit = 50, type?: string): TransferHistoryRow[] {
+  const db = getDb()
+  const stmt = type
+    ? db.prepare('SELECT * FROM transfer_history WHERE type = ? ORDER BY created_at DESC LIMIT ?')
+    : db.prepare('SELECT * FROM transfer_history ORDER BY created_at DESC LIMIT ?')
+  if (type) {
+    stmt.bind([type, limit])
+  } else {
+    stmt.bind([limit])
+  }
+  const rows: TransferHistoryRow[] = []
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject() as unknown as TransferHistoryRow)
+  }
+  stmt.free()
+  return rows
+}
+
+export function addTransferHistory(data: {
+  device_id: number
+  type: string
+  direction: string
+  detail?: string
+  size?: number
+  status?: string
+}): TransferHistoryRow {
+  const db = getDb()
+  db.run(
+    'INSERT INTO transfer_history (device_id, type, direction, detail, size, status) VALUES (?, ?, ?, ?, ?, ?)',
+    [data.device_id, data.type, data.direction, data.detail || '', data.size || 0, data.status || 'success']
+  )
+  saveDatabase()
+  const id = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
+  return getTransferHistoryById(id)!
+}
+
+function getTransferHistoryById(id: number): TransferHistoryRow | null {
+  const stmt = getDb().prepare('SELECT * FROM transfer_history WHERE id = ?')
+  stmt.bind([id])
+  if (stmt.step()) {
+    const row = stmt.getAsObject() as unknown as TransferHistoryRow
+    stmt.free()
+    return row
+  }
+  stmt.free()
+  return null
+}
+
+export function clearTransferHistory(): void {
+  getDb().run('DELETE FROM transfer_history')
   saveDatabase()
 }
