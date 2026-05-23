@@ -87,6 +87,31 @@ const api = {
     start: (nodeId: number) => ipcRenderer.invoke('winsvc:start', nodeId),
     stop: (nodeId: number) => ipcRenderer.invoke('winsvc:stop', nodeId)
   },
+  // Handoff (device pairing & transfer)
+  handoff: {
+    startService: () => ipcRenderer.invoke('handoff:start-service'),
+    stopService: () => ipcRenderer.invoke('handoff:stop-service'),
+    restartService: () => ipcRenderer.invoke('handoff:restart-service'),
+    serviceStatus: () => ipcRenderer.invoke('handoff:service-status'),
+    listDevices: () => ipcRenderer.invoke('handoff:list-devices'),
+    deleteDevice: (id: number) => ipcRenderer.invoke('handoff:delete-device', id),
+    updateDevice: (id: number, data: unknown) => ipcRenderer.invoke('handoff:update-device', id, data),
+    generatePairing: (deviceName: string, devicePublicKey: string) =>
+      ipcRenderer.invoke('handoff:generate-pairing', deviceName, devicePublicKey),
+    transferHistory: (type?: string, limit?: number) =>
+      ipcRenderer.invoke('handoff:transfer-history', type, limit),
+    clearHistory: () => ipcRenderer.invoke('handoff:clear-history'),
+    connectSSE: () => ipcRenderer.invoke('handoff:connect-sse'),
+    disconnectSSE: () => ipcRenderer.invoke('handoff:disconnect-sse'),
+    onEvent: (cb: (data: { event: string; data: unknown }) => void) => {
+      ipcRenderer.on('handoff:event', (_e, data) => cb(data))
+      return () => ipcRenderer.removeAllListeners('handoff:event')
+    },
+    onServiceStatusChange: (cb: (data: { status: 'running' | 'stopped' }) => void) => {
+      ipcRenderer.on('handoff:service-status-change', (_e, data) => cb(data))
+      return () => ipcRenderer.removeAllListeners('handoff:service-status-change')
+    }
+  },
   // Window controls
   window: {
     minimize: () => ipcRenderer.send('window:minimize'),
