@@ -7,6 +7,7 @@ import { getConfig } from './config'
 import { sendToClient } from './ws-server'
 
 const CHUNK_SIZE = 256 * 1024 // 256KB
+const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
 
 interface ActiveTransfer {
   filename: string
@@ -22,6 +23,11 @@ interface ActiveTransfer {
 const activeTransfers: Map<string, ActiveTransfer> = new Map()
 
 export function handleFileOffer(ws: WebSocket, msg: { filename: string; size: number; checksum: string }): void {
+  if (msg.size <= 0 || msg.size > MAX_FILE_SIZE) {
+    sendToClient(ws, 'file:error', { error: `file size must be between 1 and ${MAX_FILE_SIZE} bytes` })
+    return
+  }
+
   const transferId = crypto.randomBytes(8).toString('hex')
   const totalChunks = Math.ceil(msg.size / CHUNK_SIZE)
 
