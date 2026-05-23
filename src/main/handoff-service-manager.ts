@@ -62,7 +62,8 @@ export function startHandoffService(): boolean {
 
   serviceProcess = spawn('node', [jsPath, userDataPath], {
     detached: true,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true
   })
 
   serviceProcess.unref()
