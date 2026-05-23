@@ -3,6 +3,9 @@ name: iOS Build
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
@@ -39,9 +42,21 @@ jobs:
           zip -r HandoffApp.ipa Payload
           rm -rf Payload
 
-      - name: Upload IPA
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: HandoffApp.ipa
           path: ios/HandoffApp/build/HandoffApp.ipa
         continue-on-error: true
+
+      - name: Create Release and upload IPA
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-latest
+          name: "iOS HandoffApp (Latest Build)"
+          body: "Latest unsigned IPA build of HandoffApp for iOS.\n\nBuild date: ${{ github.event.repository.updated_at }}"
+          draft: false
+          prerelease: true
+          files: ios/HandoffApp/build/HandoffApp.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
