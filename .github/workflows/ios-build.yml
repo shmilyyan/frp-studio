@@ -16,6 +16,21 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        run: |
+          MARKETING_VERSION="1.0"
+          BUILD_NUMBER=$(date +%Y%m%d%H%M)
+          SHORT_HASH=$(git rev-parse --short=7 HEAD)
+          FULL_VERSION="${MARKETING_VERSION}.${BUILD_NUMBER}"
+          echo "marketing_version=${MARKETING_VERSION}" >> $GITHUB_OUTPUT
+          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "full_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
+          echo "short_hash=${SHORT_HASH}" >> $GITHUB_OUTPUT
+          echo "Version: ${FULL_VERSION} (${SHORT_HASH})"
 
       - name: Install tools
         run: brew install xcodegen librsvg
@@ -41,7 +56,9 @@ jobs:
             archive \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            CURRENT_PROJECT_VERSION=${{ steps.version.outputs.build_number }} \
+            MARKETING_VERSION=${{ steps.version.outputs.marketing_version }}
 
       - name: Package IPA
         run: |
@@ -51,20 +68,28 @@ jobs:
           cd build
           zip -r HandoffApp.ipa Payload
           rm -rf Payload
+          ls -lh HandoffApp.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HandoffApp.ipa
+          name: HandoffApp-${{ steps.version.outputs.full_version }}
           path: ios/HandoffApp/build/HandoffApp.ipa
         continue-on-error: true
 
       - name: Create Release and upload IPA
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ios-latest
-          name: "iOS HandoffApp (Latest Build)"
-          body: "Latest unsigned IPA build of HandoffApp for iOS.\n\nBuild date: ${{ github.event.repository.updated_at }}"
+          tag_name: ios-v${{ steps.version.outputs.full_version }}
+          name: "iOS HandoffApp v${{ steps.version.outputs.full_version }}"
+          body: |
+            ## iOS HandoffApp
+
+            **版本:** ${{ steps.version.outputs.marketing_version }} (Build ${{ steps.version.outputs.build_number }})
+            **提交:** ${{ steps.version.outputs.short_hash }}
+            **构建时间:** ${{ github.event.repository.updated_at }}
+
+            未签名的 IPA，使用全能签或其他工具签名后安装。
           draft: false
           prerelease: true
           files: ios/HandoffApp/build/HandoffApp.ipa
