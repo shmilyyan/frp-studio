@@ -1,0 +1,43 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build iOS App
+        run: |
+          cd ios/HandoffApp
+          xcodebuild -project HandoffApp.xcodeproj \
+            -scheme HandoffApp \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath build/HandoffApp.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Export IPA
+        run: |
+          cd ios/HandoffApp
+          mkdir -p build
+          xcodebuild -exportArchive \
+            -archivePath build/HandoffApp.xcarchive \
+            -exportPath build/ \
+            -exportOptionsPlist ExportOptions.plist
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: HandoffApp.ipa
+          path: ios/HandoffApp/build/HandoffApp.ipa
