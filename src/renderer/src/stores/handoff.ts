@@ -2,13 +2,10 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
 export interface PairedDevice {
-  id: number
-  device_id: string
-  device_name: string
-  platform: string
-  paired_at: number
-  last_seen: number
-  enabled: number
+  deviceId: string
+  deviceName: string
+  publicKey: string
+  enabled: boolean
 }
 
 export interface TransferRecord {
@@ -67,7 +64,7 @@ export const useHandoffStore = defineStore('handoff', () => {
 
   async function deleteDevice(deviceId: string): Promise<void> {
     await window.api.handoff.deleteDevice(deviceId)
-    devices.value = devices.value.filter((d) => d.device_id !== deviceId)
+    devices.value = devices.value.filter((d) => d.deviceId !== deviceId)
   }
 
   async function generatePairing(deviceName: string, devicePublicKey: string): Promise<{ success: boolean; qrData?: string; error?: string }> {

@@ -52,6 +52,16 @@ async function main(): Promise<void> {
     sendToClient(ws, 'clipboard', getLatestClipboard())
   })
 
+  // Receive clipboard content from iOS peers
+  registerHandler('clipboard', (_ws, msg) => {
+    const { writeClipboard } = require('./clipboard')
+    const payload = (msg as { payload: string }).payload
+    if (payload && typeof payload === 'string' && payload.length > 0) {
+      writeClipboard(payload)
+      console.log(`[HandoffService] Clipboard received from iOS (${payload.length} chars)`)
+    }
+  })
+
   // Start mDNS broadcast for LAN device discovery
   const { startMDNSBroadcast } = await import('./mdns')
   startMDNSBroadcast()

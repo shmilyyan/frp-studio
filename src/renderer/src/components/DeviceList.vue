@@ -16,17 +16,17 @@
               <span style="font-size: 24px;">📱</span>
             </template>
             <template #title>
-              {{ item.device_name }}
+              {{ item.deviceName }}
               <a-tag :color="item.enabled ? 'green' : 'default'" style="margin-left: 8px;">
                 {{ item.enabled ? '已启用' : '已停用' }}
               </a-tag>
             </template>
             <template #description>
-              {{ item.platform }} · ID: {{ item.device_id }} · 配对于 {{ new Date(item.paired_at * 1000).toLocaleDateString() }}
+              ID: {{ item.deviceId }}
             </template>
           </a-list-item-meta>
           <template #actions>
-            <a-button size="small" type="link" danger @click="handleDelete(item.device_id)">解除配对</a-button>
+            <a-button size="small" type="link" danger @click="handleDelete(item.deviceId)">解除配对</a-button>
           </template>
         </a-list-item>
       </template>
