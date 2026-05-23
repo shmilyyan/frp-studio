@@ -6,54 +6,119 @@ class ConnectionManager: ObservableObject {
     @Published var pairedDevices: [PairedDevice] = []
     @Published var isScanning = false
     @Published var clipboardContent: String?
+    @Published var isConnecting = false
+    @Published var connectionError: String?
 
     private var webSocket: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
+    private let logger = DebugLogger.shared
 
     func startDiscovery() {
         isScanning = true
+        logger.info("设备发现已启动")
     }
-
-    @Published var isConnecting = false
-    @Published var connectionError: String?
 
     func connect(to host: String, port: UInt16) {
         isConnecting = true
         connectionError = nil
-        let url = URL(string: "ws://\(host):\(port)")!
+        logger.info("正在连接 \(host):\(port)...")
+
+        guard let url = URL(string: "ws://\(host):\(port)") else {
+            connectionError = "无效的连接地址"
+            logger.error("无效的 URL: ws://\(host):\(port)")
+            isConnecting = false
+            return
+        }
+
         webSocket = session.webSocketTask(with: url)
         webSocket?.resume()
         receiveMessage()
-        // Mark as connected after a brief delay
+
+        logger.info("WebSocket 连接已发起")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.isConnecting = false
         }
     }
 
     func handleQRCode(_ code: String) -> Bool {
-        guard let data = code.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let host = json["host"] as? String,
-              let port = json["port"] as? Int else {
-            connectionError = "无效的二维码内容"
+        logger.info("扫码内容长度: \(code.count) 字符")
+        logger.debug("扫码原始内容: \(code.prefix(200))")
+
+        guard let data = code.data(using: .utf8) else {
+            connectionError = "二维码内容无法解析为 UTF-8"
+            logger.error("UTF-8 解析失败")
             return false
         }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            connectionError = "二维码内容不是有效的 JSON"
+            logger.error("JSON 解析失败")
+            return false
+        }
+
+        logger.debug("解析 JSON 成功: \(json.keys.joined(separator: ", "))")
+
+        guard let host = json["host"] as? String else {
+            connectionError = "二维码缺少 host 字段"
+            logger.error("JSON 缺少 host, 可用字段: \(json.keys.joined(separator: ", "))")
+            return false
+        }
+
+        guard let port = json["port"] as? Int else {
+            connectionError = "二维码缺少 port 字段"
+            logger.error("JSON 缺少 port")
+            return false
+        }
+
+        logger.info("QR 解析成功: host=\(host), port=\(port)")
+        if let token = json["token"] as? String {
+            logger.info("配对 token: \(token)")
+        }
+        if let deviceId = json["deviceId"] as? String {
+            logger.info("目标设备 ID: \(deviceId)")
+        }
+
+        // Add to paired devices
+        let device = PairedDevice(
+            deviceId: json["deviceId"] as? String ?? host,
+            name: "Windows-\(host)",
+            platform: "windows",
+            isConnected: true
+        )
+        pairedDevices.append(device)
+        logger.info("设备已添加到列表: \(device.name)")
 
         connect(to: host, port: UInt16(port))
         return true
     }
 
     func pullClipboard() {
-        guard let ws = webSocket else { return }
+        guard let ws = webSocket else {
+            logger.warn("pullClipboard: WebSocket 未连接")
+            return
+        }
+        logger.info("请求获取剪贴板")
         let message = URLSessionWebSocketTask.Message.string("{\"type\":\"clipboard:latest\"}")
-        ws.send(message) { _ in }
+        ws.send(message) { [weak self] error in
+            if let error = error {
+                self?.logger.error("剪贴板请求发送失败: \(error.localizedDescription)")
+            }
+        }
     }
 
     func sendClipboard(_ content: String) {
-        guard let ws = webSocket else { return }
+        guard let ws = webSocket else {
+            logger.warn("sendClipboard: WebSocket 未连接")
+            return
+        }
         let escaped = content.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let msg = "{\"type\":\"clipboard\",\"payload\":\"\(escaped)\",\"timestamp\":\(Date().timeIntervalSince1970)}"
-        ws.send(.string(msg)) { _ in }
+        logger.info("发送剪贴板内容 (\(content.count) 字符)")
+        ws.send(.string(msg)) { [weak self] error in
+            if let error = error {
+                self?.logger.error("剪贴板发送失败: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func receiveMessage() {
@@ -62,14 +127,16 @@ class ConnectionManager: ObservableObject {
             case .success(let message):
                 switch message {
                 case .string(let text):
+                    self?.logger.debug("WebSocket 收到文本: \(text.prefix(100))")
                     self?.handleMessage(text)
                 case .data(let data):
+                    self?.logger.debug("WebSocket 收到二进制: \(data.count) bytes")
                     self?.handleBinary(data)
                 @unknown default: break
                 }
                 self?.receiveMessage()
-            case .failure:
-                break
+            case .failure(let error):
+                self?.logger.error("WebSocket 接收失败: \(error.localizedDescription)")
             }
         }
     }
@@ -77,7 +144,12 @@ class ConnectionManager: ObservableObject {
     private func handleMessage(_ text: String) {
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String else { return }
+              let type = json["type"] as? String else {
+            logger.warn("WebSocket 消息解析失败: \(text.prefix(100))")
+            return
+        }
+
+        logger.info("收到消息类型: \(type)")
 
         DispatchQueue.main.async {
             switch type {
@@ -85,16 +157,20 @@ class ConnectionManager: ObservableObject {
                 self.clipboardContent = json["payload"] as? String
                 if let content = self.clipboardContent {
                     UIPasteboard.general.string = content
+                    self.logger.info("剪贴板已更新 (\(content.count) 字符)")
                 }
             case "file:offer":
-                break
+                if let filename = json["filename"] as? String,
+                   let size = json["size"] as? Int {
+                    self.logger.info("收到文件传输请求: \(filename) (\(size) bytes)")
+                }
             default:
-                break
+                self.logger.debug("未处理的消息类型: \(type)")
             }
         }
     }
 
     private func handleBinary(_ data: Data) {
-        // File chunk handling
+        logger.debug("收到二进制数据块: \(data.count) bytes")
     }
 }
