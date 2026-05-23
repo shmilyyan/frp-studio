@@ -8,7 +8,7 @@ let pollingTimer: ReturnType<typeof setInterval> | null = null
 
 function execPowerShell(script: string): Promise<string> {
   try {
-    return Promise.resolve(execSync(`powershell -Command "${script}"`, { encoding: 'utf-8', windowsHide: true }).trim())
+    return Promise.resolve(execSync(`powershell -WindowStyle Hidden -Command "${script}"`, { encoding: 'utf-8', windowsHide: true }).trim())
   } catch {
     return Promise.resolve('')
   }
@@ -55,7 +55,7 @@ export function stopClipboardWatcher(): void {
 export function writeClipboard(text: string): void {
   const cmd = `Set-Clipboard -Value ${JSON.stringify(text)}`
   const encoded = Buffer.from(cmd, 'utf-16le').toString('base64')
-  execSync(`powershell -EncodedCommand ${encoded}`, { encoding: 'utf-8', windowsHide: true })
+  execSync(`powershell -WindowStyle Hidden -EncodedCommand ${encoded}`, { encoding: 'utf-8', windowsHide: true })
   cachedContent = text
   cachedHash = hashContent(text)
 }

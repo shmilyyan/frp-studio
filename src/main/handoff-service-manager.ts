@@ -128,7 +128,7 @@ export function getServiceUptime(): number {
   try {
     const { execSync } = require('child_process')
     const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10)
-    const output = execSync(`powershell -Command "(Get-Process -Id ${pid}).StartTime"`, { encoding: 'utf-8', windowsHide: true }).trim()
+    const output = execSync(`powershell -WindowStyle Hidden -Command "(Get-Process -Id ${pid}).StartTime"`, { encoding: 'utf-8', windowsHide: true }).trim()
     const startTime = new Date(output).getTime()
     return Date.now() - startTime
   } catch {
