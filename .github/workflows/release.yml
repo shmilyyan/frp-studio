@@ -111,7 +111,6 @@ jobs:
             dist/linux-unpacked
 
   build-ios:
-    if: github.event_name != 'push' || github.ref_type == 'tag'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
