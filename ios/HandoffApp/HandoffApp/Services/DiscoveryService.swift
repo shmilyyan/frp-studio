@@ -23,11 +23,11 @@ class DiscoveryService: NSObject, NetServiceBrowserDelegate, NetServiceDelegate 
     func netServiceDidResolveAddress(_ sender: NetService) {
         guard let hostName = sender.hostName else { return }
         let port = sender.port
-        let txtData = NetService.dictionary(fromTXTRecordData: sender.txtRecordData() ?? Data())
+        let txtData = NetService.dictionary(fromTXTRecord: sender.txtRecordData() ?? Data())
         var info: [String: String] = [:]
         for (key, value) in txtData {
             info[key] = String(data: value, encoding: .utf8)
         }
-        onDeviceFound?(hostName, port, info)
+        onDeviceFound?(hostName, UInt16(port), info)
     }
 }
