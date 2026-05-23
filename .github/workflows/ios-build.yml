@@ -1,11 +1,6 @@
 name: iOS Build
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'ios/**'
-      - '.github/workflows/ios-build.yml'
   workflow_dispatch:
 
 permissions:
