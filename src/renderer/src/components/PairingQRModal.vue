@@ -19,6 +19,7 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
+import { message } from 'ant-design-vue'
 import { useHandoffStore } from '../stores/handoff'
 
 const props = defineProps<{ open: boolean }>()
@@ -36,9 +37,15 @@ watch(() => props.open, async (val) => {
 
 async function generateQR(): Promise<void> {
   if (!qrCanvas.value) return
-  const result = await store.generatePairing('My iPhone', 'placeholder-key')
-  if (result.success && result.qrData) {
-    drawQR(qrCanvas.value, result.qrData)
+  try {
+    const result = await store.generatePairing('My iPhone', 'placeholder-key')
+    if (result.success && result.qrData) {
+      drawQR(qrCanvas.value, result.qrData)
+    } else {
+      message.error(result.error || '生成配对码失败')
+    }
+  } catch {
+    message.error('无法连接接力服务，请确认服务已启动')
   }
 }
 
