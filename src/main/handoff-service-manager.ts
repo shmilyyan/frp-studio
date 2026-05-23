@@ -9,10 +9,14 @@ const MAX_RESTART = 3
 const RESTART_DELAY = 3000
 
 function getServiceJsPath(): string {
+  const devPath = path.join(app.getAppPath(), 'out', 'handoff-service', 'index.js')
+  const packagedPath = path.join(process.resourcesPath, 'out', 'handoff-service', 'index.js')
+
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'out', 'handoff-service', 'index.js')
+    if (fs.existsSync(packagedPath)) return packagedPath
+    return devPath
   }
-  return path.join(app.getAppPath(), 'out', 'handoff-service', 'index.js')
+  return devPath
 }
 
 function getUserDataPath(): string {
@@ -78,7 +82,7 @@ export function startHandoffService(): boolean {
     serviceProcess = null
     restartCount++
 
-    if (restartCount <= MAX_RESTART) {
+    if (restartCount < MAX_RESTART) {
       console.log(`[FRP Studio] Restarting HandoffService in ${RESTART_DELAY}ms (attempt ${restartCount}/${MAX_RESTART})`)
       setTimeout(() => startHandoffService(), RESTART_DELAY)
     } else {
