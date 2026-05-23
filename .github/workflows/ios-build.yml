@@ -5,19 +5,17 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install xcodegen (via mint - builds from source)
-        run: |
-          brew install mint
-          mint install yonaskolb/XcodeGen@2.42.0
+      - name: Install xcodegen
+        run: brew install xcodegen
 
       - name: Generate Xcode project
         run: |
           cd ios/HandoffApp
-          mint run xcodegen generate
+          xcodegen generate
 
       - name: Build iOS App
         run: |
