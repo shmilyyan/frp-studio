@@ -53,8 +53,9 @@ export function stopClipboardWatcher(): void {
 }
 
 export function writeClipboard(text: string): void {
-  const escaped = text.replace(/'/g, "''")
-  execSync(`powershell -Command "Set-Clipboard -Value '${escaped}'"`, { encoding: 'utf-8' })
+  const cmd = `Set-Clipboard -Value ${JSON.stringify(text)}`
+  const encoded = Buffer.from(cmd, 'utf-16le').toString('base64')
+  execSync(`powershell -EncodedCommand ${encoded}`, { encoding: 'utf-8' })
   cachedContent = text
   cachedHash = hashContent(text)
 }

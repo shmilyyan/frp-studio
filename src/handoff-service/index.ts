@@ -36,14 +36,10 @@ async function main(): Promise<void> {
   startWebSocketServer(server)
 
   // Register WebSocket message handlers
-  const { handleFileOffer, handleFileRequest } = await import('./file-transfer')
+  const { handleFileOffer } = await import('./file-transfer')
 
   registerHandler('file:offer', (ws, msg) => {
     handleFileOffer(ws, msg as { filename: string; size: number; checksum: string })
-  })
-
-  registerHandler('file:request', (ws, msg) => {
-    handleFileRequest(ws, msg as { filePath: string })
   })
 
   registerHandler('file:accept', (ws, msg) => {

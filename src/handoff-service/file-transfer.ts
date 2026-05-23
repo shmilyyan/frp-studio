@@ -73,7 +73,14 @@ function completeReceive(transferId: string): void {
   const actualChecksum = 'sha256:' + crypto.createHash('sha256').update(fullFile).digest('hex')
   const success = actualChecksum === transfer.checksum
 
-  const destPath = path.join(downloadDir, transfer.filename)
+  const safeName = path.basename(transfer.filename)
+  const resolvedDest = path.resolve(path.join(downloadDir, safeName))
+  if (!resolvedDest.startsWith(path.resolve(downloadDir))) {
+    sendToClient(transfer.ws, 'file:error', { transferId, error: 'path traversal blocked' })
+    activeTransfers.delete(transferId)
+    return
+  }
+  const destPath = resolvedDest
 
   if (success) {
     fs.writeFileSync(destPath, fullFile)
@@ -86,36 +93,3 @@ function completeReceive(transferId: string): void {
   activeTransfers.delete(transferId)
 }
 
-export function handleFileRequest(ws: WebSocket, msg: { filePath: string }): void {
-  const filePath = msg.filePath
-  if (!fs.existsSync(filePath)) {
-    sendToClient(ws, 'file:error', { error: 'file not found' })
-    return
-  }
-
-  const stat = fs.statSync(filePath)
-  const filename = path.basename(filePath)
-  const fileBuffer = fs.readFileSync(filePath)
-  const checksum = 'sha256:' + crypto.createHash('sha256').update(fileBuffer).digest('hex')
-  const totalChunks = Math.ceil(stat.size / CHUNK_SIZE)
-
-  const transferId = crypto.randomBytes(8).toString('hex')
-
-  sendToClient(ws, 'file:offer', { filename, size: stat.size, checksum, transferId })
-
-  // Send chunks
-  for (let i = 0; i < totalChunks; i++) {
-    const start = i * CHUNK_SIZE
-    const end = Math.min(start + CHUNK_SIZE, stat.size)
-    const chunkData = fileBuffer.subarray(start, end)
-
-    const header = Buffer.alloc(1 + 8 + 4)
-    const idBuf = Buffer.from(transferId, 'utf-8')
-    header.writeUInt8(idBuf.length, 0)
-    idBuf.copy(header, 1)
-    header.writeUInt32LE(i, 9)
-    ws.send(Buffer.concat([header, chunkData]))
-  }
-
-  console.log(`[HandoffService] File sent: ${filePath} (${stat.size} bytes)`)
-}
