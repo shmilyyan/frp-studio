@@ -17,8 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install xcodegen
-        run: brew install xcodegen
+      - name: Install tools
+        run: brew install xcodegen librsvg
+
+      - name: Generate app icon from SVG
+        run: |
+          ICONSET=ios/HandoffApp/HandoffApp/Assets.xcassets/AppIcon.appiconset
+          rsvg-convert -w 1024 -h 1024 "$ICONSET/icon.svg" -o "$ICONSET/icon.png"
 
       - name: Generate Xcode project
         run: |
