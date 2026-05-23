@@ -16,10 +16,58 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => process.exit(0))
   process.on('SIGINT', () => process.exit(0))
 
+  // Load config
   const { loadConfig } = await import('./config')
   const config = loadConfig(userDataPath)
   console.log(`[HandoffService] Starting on port ${config.server.port}`)
   console.log(`[HandoffService] Device name: ${config.device.name}`)
+
+  // Initialize device identity for pairing
+  const { initDeviceIdentity } = await import('./pairing')
+  initDeviceIdentity(userDataPath)
+  console.log('[HandoffService] Device identity initialized')
+
+  // Start HTTP server (also serves as upgrade base for WebSocket)
+  const { startHTTPServer } = await import('./http-server')
+  const server = startHTTPServer()
+
+  // Attach WebSocket server to the same HTTP server
+  const { startWebSocketServer, registerHandler, sendToClient } = await import('./ws-server')
+  startWebSocketServer(server)
+
+  // Register WebSocket message handlers
+  const { handleFileOffer, handleFileRequest } = await import('./file-transfer')
+
+  registerHandler('file:offer', (ws, msg) => {
+    handleFileOffer(ws, msg as { filename: string; size: number; checksum: string })
+  })
+
+  registerHandler('file:request', (ws, msg) => {
+    handleFileRequest(ws, msg as { filePath: string })
+  })
+
+  registerHandler('file:accept', (ws, msg) => {
+    // Client accepted a file offer, transfer will proceed via binary frames
+    console.log('[HandoffService] File offer accepted:', msg)
+  })
+
+  registerHandler('clipboard:latest', (ws) => {
+    const { getLatestClipboard } = require('./clipboard')
+    sendToClient(ws, 'clipboard', getLatestClipboard())
+  })
+
+  // Start mDNS broadcast for LAN device discovery
+  const { startMDNSBroadcast } = await import('./mdns')
+  startMDNSBroadcast()
+
+  // Start clipboard watcher (broadcasts changes to all connected peers)
+  const { startClipboardWatcher } = await import('./clipboard')
+  const { broadcastToAll } = await import('./ws-server')
+  startClipboardWatcher((content) => {
+    broadcastToAll('clipboard', { payload: content, timestamp: Date.now() })
+  })
+
+  console.log('[HandoffService] All modules started')
 }
 
 main().catch((err) => {
