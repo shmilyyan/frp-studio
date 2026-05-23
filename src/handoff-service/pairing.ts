@@ -1,6 +1,21 @@
 import { generateDeviceId, generateKeyPair, generatePairingToken, verify } from './crypto'
 import { getConfig } from './config'
 import fs from 'fs'
+import os from 'os'
+
+function getLanIP(): string {
+  const interfaces = os.networkInterfaces()
+  for (const name of Object.keys(interfaces)) {
+    const iface = interfaces[name]
+    if (!iface) continue
+    for (const addr of iface) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        return addr.address
+      }
+    }
+  }
+  return '127.0.0.1'
+}
 
 interface PendingPairing {
   token: string
@@ -58,7 +73,7 @@ export function generatePairRequest(deviceName: string, devicePublicKey: string)
     token,
     deviceId: serverId.deviceId,
     publicKey: serverId.publicKey,
-    host: config.server.bindAddress === '0.0.0.0' ? 'localhost' : config.server.bindAddress,
+    host: getLanIP(),
     port: config.server.port
   })
 

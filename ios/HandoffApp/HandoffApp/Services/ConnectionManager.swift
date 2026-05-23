@@ -14,20 +14,33 @@ class ConnectionManager: ObservableObject {
         isScanning = true
     }
 
+    @Published var isConnecting = false
+    @Published var connectionError: String?
+
     func connect(to host: String, port: UInt16) {
+        isConnecting = true
+        connectionError = nil
         let url = URL(string: "ws://\(host):\(port)")!
         webSocket = session.webSocketTask(with: url)
         webSocket?.resume()
         receiveMessage()
+        // Mark as connected after a brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.isConnecting = false
+        }
     }
 
-    func handleQRCode(_ code: String) {
+    func handleQRCode(_ code: String) -> Bool {
         guard let data = code.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let host = json["host"] as? String,
-              let port = json["port"] as? Int else { return }
+              let port = json["port"] as? Int else {
+            connectionError = "无效的二维码内容"
+            return false
+        }
 
         connect(to: host, port: UInt16(port))
+        return true
     }
 
     func pullClipboard() {

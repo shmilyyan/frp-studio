@@ -25,8 +25,10 @@ struct PairingView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     QRScannerView { code in
-                        connectionManager.handleQRCode(code)
-                        dismiss()
+                        let success = connectionManager.handleQRCode(code)
+                        if success {
+                            dismiss()
+                        }
                     } onError: { error in
                         cameraError = error
                     }
