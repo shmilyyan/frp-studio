@@ -9,6 +9,8 @@ import { registerSystemHandlers } from './ipc/system'
 import { handleWindowClose, refreshTrayMenu } from './tray'
 import { frpcManager } from './frpc'
 import { checkFrpExists, autoDownloadLatest, getLatestVersion, getInstalledFrpVersion } from './downloader'
+import { registerHandoffHandlers } from './ipc/handoff'
+import { startHandoffService } from './handoff-service-manager'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -170,6 +172,11 @@ app.whenReady().then(async () => {
   registerSystemHandlers()
 
   const win = createWindow()
+
+  registerHandoffHandlers()
+
+  // Start HandoffService background process
+  startHandoffService()
 
   // frpc 状态变化时刷新托盘菜单
   frpcManager.onStatusChange(() => refreshTrayMenu(win))
