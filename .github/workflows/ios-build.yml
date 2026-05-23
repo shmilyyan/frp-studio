@@ -37,7 +37,7 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath build/HandoffApp.xcarchive \
             -exportPath build/ \
-            -exportOptionsPlist ExportOptions.plist 2>/dev/null || true
+            -exportOptionsPlist ExportOptions.plist
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
