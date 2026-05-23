@@ -44,7 +44,15 @@ export function loadConfig(configDir: string): HandoffConfig {
   try {
     if (fs.existsSync(configPath)) {
       const raw = fs.readFileSync(configPath, 'utf-8')
-      config = { ...defaultConfig, ...JSON.parse(raw) }
+      const parsed = JSON.parse(raw)
+      config = {
+        ...defaultConfig,
+        ...parsed,
+        server: { ...defaultConfig.server, ...(parsed.server || {}) },
+        device: { ...defaultConfig.device, ...(parsed.device || {}) },
+        features: { ...defaultConfig.features, ...(parsed.features || {}) },
+        frpTunnel: { ...defaultConfig.frpTunnel, ...(parsed.frpTunnel || {}) }
+      }
     } else {
       fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8')
       config = { ...defaultConfig }
@@ -63,7 +71,15 @@ export function reloadConfig(): HandoffConfig {
   if (!configPath) return config
   try {
     const raw = fs.readFileSync(configPath, 'utf-8')
-    config = { ...defaultConfig, ...JSON.parse(raw) }
+    const parsed = JSON.parse(raw)
+    config = {
+      ...defaultConfig,
+      ...parsed,
+      server: { ...defaultConfig.server, ...(parsed.server || {}) },
+      device: { ...defaultConfig.device, ...(parsed.device || {}) },
+      features: { ...defaultConfig.features, ...(parsed.features || {}) },
+      frpTunnel: { ...defaultConfig.frpTunnel, ...(parsed.frpTunnel || {}) }
+    }
   } catch { /* keep current config */ }
   return config
 }

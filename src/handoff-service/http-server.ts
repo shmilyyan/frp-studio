@@ -42,12 +42,20 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
   // Health check
   if (req.method === 'GET' && url === '/health') {
+    const cfg = getConfig()
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       status: 'running',
       uptime: process.uptime(),
       connections: sseClients.size,
-      version: '0.1.0'
+      version: '0.1.0',
+      config: {
+        deviceName: cfg.device.name,
+        port: cfg.server.port,
+        downloadDir: cfg.device.downloadDir || '',
+        clipboardMaxSize: cfg.features.clipboardMaxSize,
+        frpTunnelEnabled: cfg.frpTunnel.enabled
+      }
     }))
     return
   }
@@ -81,8 +89,19 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
   // Generate pairing QR data
   if (req.method === 'POST' && url === '/pair/generate') {
+    const MAX_BODY = 1024 * 1024 // 1MB
     let body = ''
-    req.on('data', (chunk) => { body += chunk })
+    let bodyLength = 0
+    req.on('data', (chunk) => {
+      bodyLength += chunk.length
+      if (bodyLength > MAX_BODY) {
+        res.writeHead(413)
+        res.end(JSON.stringify({ error: 'request body too large' }))
+        req.destroy()
+        return
+      }
+      body += chunk
+    })
     req.on('end', () => {
       try {
         const { deviceName, devicePublicKey } = JSON.parse(body)
@@ -100,8 +119,19 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
   // Confirm pairing
   if (req.method === 'POST' && url === '/pair/confirm') {
+    const MAX_BODY = 1024 * 1024 // 1MB
     let body = ''
-    req.on('data', (chunk) => { body += chunk })
+    let bodyLength = 0
+    req.on('data', (chunk) => {
+      bodyLength += chunk.length
+      if (bodyLength > MAX_BODY) {
+        res.writeHead(413)
+        res.end(JSON.stringify({ error: 'request body too large' }))
+        req.destroy()
+        return
+      }
+      body += chunk
+    })
     req.on('end', () => {
       try {
         const { token, signedToken, deviceInfo } = JSON.parse(body)
