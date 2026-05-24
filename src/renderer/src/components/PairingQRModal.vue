@@ -24,15 +24,24 @@ import { useHandoffStore } from '../stores/handoff'
 import QRCode from 'qrcode'
 
 const props = defineProps<{ open: boolean }>()
-defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: [] }>()
 
 const store = useHandoffStore()
 const qrCanvas = ref<HTMLCanvasElement | null>(null)
+const initialDeviceCount = ref(0)
 
 watch(() => props.open, async (val) => {
   if (val) {
+    initialDeviceCount.value = store.devices.length
     await nextTick()
     await generateQR()
+  }
+})
+
+// Auto-close when a new device is paired
+watch(() => store.devices.length, (count) => {
+  if (props.open && count > initialDeviceCount.value) {
+    emit('close')
   }
 })
 

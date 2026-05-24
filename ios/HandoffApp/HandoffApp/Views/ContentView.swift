@@ -22,7 +22,7 @@ struct ContentView: View {
                         HStack {
                             Text("设备ID")
                             Spacer()
-                            Text(connectionManager.deviceId.prefix(8) + "...")
+                            Text(connectionManager.deviceId)
                                 .foregroundColor(.secondary)
                                 .font(.caption)
                         }

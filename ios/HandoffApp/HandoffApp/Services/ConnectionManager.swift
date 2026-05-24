@@ -304,6 +304,8 @@ class ConnectionManager: ObservableObject {
                 "deviceName": UIDevice.current.name,
                 "platform": "ios"
             ])
+            // Check clipboard on reconnect (may have changed while disconnected)
+            ClipboardService.shared.checkNow()
         }
 
         socket?.on("auth:ok") { [weak self] data, ack in
