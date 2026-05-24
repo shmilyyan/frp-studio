@@ -14,8 +14,12 @@ class ClipboardService: NSObject, ObservableObject {
         lastChangeCount = UIPasteboard.general.changeCount
     }
 
+    private var checkCount = 0
+
     func startMonitoring(interval: TimeInterval = 2.0) {
         stopMonitoring()
+        checkCount = 0
+        print("[Handoff] 剪贴板监听已启动 (间隔 \(interval)s)")
         pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.checkForChanges()
         }
@@ -32,7 +36,15 @@ class ClipboardService: NSObject, ObservableObject {
 
     private func checkForChanges() {
         let current = UIPasteboard.general.changeCount
-        guard current != lastChangeCount else { return }
+        guard current != lastChangeCount else {
+            // Heartbeat log every 30 checks (60s) to confirm timer is alive
+            checkCount += 1
+            if checkCount % 30 == 0 {
+                print("[Handoff] 剪贴板监听中... (已检查 \(checkCount) 次, changeCount=\(current))")
+            }
+            return
+        }
+        checkCount = 0
         lastChangeCount = current
 
         guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
@@ -40,6 +52,7 @@ class ClipboardService: NSObject, ObservableObject {
         guard hash != lastSentHash else { return }
 
         lastSentHash = hash
+        print("[Handoff] 剪贴板变化检测到 (\(text.count) 字符), 发送中...")
         onClipboardChanged?(text)
     }
 
