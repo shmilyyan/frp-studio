@@ -9,13 +9,7 @@ struct HandoffApp: App {
     init() {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         logger.info("HandoffApp 启动 v\(version)")
-        // Request all permissions proactively on app launch
         requestPermissions()
-        // Use strong ref — ConnectionManager is owned by App, no retain cycle
-        let mgr = connectionManager
-        ClipboardService.shared.onClipboardChanged = { text in
-            mgr.sendClipboard(text)
-        }
         ClipboardService.shared.startMonitoring()
     }
 

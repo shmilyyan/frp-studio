@@ -3,11 +3,11 @@ import CryptoKit
 
 class ClipboardService: NSObject, ObservableObject {
     static let shared = ClipboardService()
+    static let clipboardChangedNotification = Notification.Name("ClipboardChanged")
 
     private var lastChangeCount: Int = 0
     private var lastSentHash: String = ""
     private var pollTimer: Timer?
-    var onClipboardChanged: ((String) -> Void)?
 
     override private init() {
         super.init()
@@ -53,7 +53,7 @@ class ClipboardService: NSObject, ObservableObject {
 
         lastSentHash = hash
         logger.warn("剪贴板变化检测到 (\(text.count) 字符), 发送中")
-        onClipboardChanged?(text)
+        NotificationCenter.default.post(name: Self.clipboardChangedNotification, object: nil, userInfo: ["text": text])
     }
 
     private func sha256(_ input: String) -> String {

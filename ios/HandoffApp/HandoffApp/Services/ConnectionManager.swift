@@ -66,6 +66,12 @@ class ConnectionManager: ObservableObject {
             logger.warn("已恢复连接: \(saved)")
         }
         logger.info("已加载 \(pairedDevices.count) 个已配对设备")
+        // Observe clipboard changes via NotificationCenter (avoids @StateObject capture issues)
+        NotificationCenter.default.addObserver(forName: ClipboardService.clipboardChangedNotification, object: nil, queue: .main) { [weak self] notification in
+            if let text = notification.userInfo?["text"] as? String {
+                self?.sendClipboard(text)
+            }
+        }
     }
 
     private var pendingClipboard: String?
