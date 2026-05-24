@@ -194,6 +194,58 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     return
   }
 
+  // ─── Debug endpoints ────────────────────────────────────────────────────
+
+  if (req.method === 'GET' && url === '/debug/status') {
+    const cfg = getConfig()
+    const { getLatestClipboard } = require('./clipboard')
+    const { getConnectedClients } = require('./ws-server')
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      uptime: process.uptime(),
+      version: getAppVersion(),
+      wsClients: getConnectedClients(),
+      clipboardCache: getLatestClipboard().hash ? 'has content' : 'empty',
+      pairedDevices: cfg.pairedDevices.length,
+      clipboardSync: cfg.features.clipboardSync,
+      fileTransfer: cfg.features.fileTransfer
+    }))
+    return
+  }
+
+  // ─── Independent clipboard HTTP endpoints ─────────────────────────────────
+
+  if (req.method === 'GET' && url === '/clipboard/latest') {
+    const { getLatestClipboard } = require('./clipboard')
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(getLatestClipboard()))
+    return
+  }
+
+  if (req.method === 'POST' && url === '/clipboard') {
+    let body = ''
+    req.on('data', (chunk) => { body += chunk })
+    req.on('end', () => {
+      try {
+        const { payload } = JSON.parse(body)
+        if (payload && typeof payload === 'string') {
+          const { writeClipboard } = require('./clipboard')
+          writeClipboard(payload)
+          res.writeHead(200)
+          res.end(JSON.stringify({ success: true, written: payload.length }))
+          console.log(`[HandoffService] Clipboard received via HTTP (${payload.length} chars)`)
+        } else {
+          res.writeHead(400)
+          res.end(JSON.stringify({ error: 'missing payload' }))
+        }
+      } catch (e) {
+        res.writeHead(400)
+        res.end(JSON.stringify({ error: String(e) }))
+      }
+    })
+    return
+  }
+
   res.writeHead(404)
   res.end(JSON.stringify({ error: 'not found' }))
 }
