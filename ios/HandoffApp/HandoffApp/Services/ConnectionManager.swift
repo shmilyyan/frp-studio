@@ -66,13 +66,9 @@ class ConnectionManager: ObservableObject {
             logger.info("已恢复连接: \(saved)")
         }
         logger.info("已加载 \(pairedDevices.count) 个已配对设备")
-
-        // Check clipboard when app comes to foreground
-        NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.logger.info("应用回到前台，检查剪贴板")
-            ClipboardService.shared.checkNow()
-        }
     }
+
+    private var pendingClipboard: String?
 
     private func saveDevices() {
         if let data = try? JSONEncoder().encode(pairedDevices) {
@@ -205,8 +201,14 @@ class ConnectionManager: ObservableObject {
     func sendClipboard(_ content: String) {
         guard !baseURL.isEmpty else { return }
         lastLocalCopyTime = Date()
-        socket?.emit("clipboard", ["payload": content])
-        logger.info("剪贴板已发送 (\(content.count) 字符)")
+        if socket?.status == .connected {
+            socket?.emit("clipboard", ["payload": content])
+            pendingClipboard = nil
+            logger.info("剪贴板已发送 (\(content.count) 字符)")
+        } else {
+            pendingClipboard = content
+            logger.info("剪贴板已缓存，等待 socket 连接 (\(content.count) 字符)")
+        }
     }
 
     private func receiveMessage() {
@@ -304,6 +306,12 @@ class ConnectionManager: ObservableObject {
                 "deviceName": UIDevice.current.name,
                 "platform": "ios"
             ])
+            // Flush any pending clipboard content first
+            if let pending = self?.pendingClipboard {
+                self?.socket?.emit("clipboard", ["payload": pending])
+                self?.logger.info("缓存的剪贴板已发送 (\(pending.count) 字符)")
+                self?.pendingClipboard = nil
+            }
             // Check clipboard on reconnect (may have changed while disconnected)
             ClipboardService.shared.checkNow()
         }
