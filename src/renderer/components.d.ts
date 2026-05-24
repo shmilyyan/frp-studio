@@ -57,6 +57,7 @@ declare module 'vue' {
     ConfigManager: typeof import('./src/components/node/ConfigManager.vue')['default']
     ConnectTest: typeof import('./src/components/node/ConnectTest.vue')['default']
     DeviceList: typeof import('./src/components/DeviceList.vue')['default']
+    DiagnosticTab: typeof import('./src/components/DiagnosticTab.vue')['default']
     HandoffSettings: typeof import('./src/components/HandoffSettings.vue')['default']
     LogPanel: typeof import('./src/components/monitor/LogPanel.vue')['default']
     NodeCard: typeof import('./src/components/node/NodeCard.vue')['default']
