@@ -284,6 +284,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 export function startHTTPServer(): http.Server {
   const config = getConfig()
   const server = http.createServer(handleRequest)
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[HandoffService] FATAL: Port ${config.server.port} is already in use. Exiting.`)
+      process.exit(1)
+    }
+    console.error('[HandoffService] HTTP server error:', err.message)
+  })
   server.listen(config.server.port, config.server.bindAddress, () => {
     console.log(`[HandoffService] HTTP server listening on ${config.server.bindAddress}:${config.server.port}`)
   })

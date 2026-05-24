@@ -195,11 +195,20 @@ app.whenReady().then(async () => {
   })
 
   // Ensure all child processes are cleaned up on exit
-  app.on('will-quit', () => {
+  let cleanedUp = false
+  function cleanupChildProcesses(): void {
+    if (cleanedUp) return
+    cleanedUp = true
     frpcManager.stopAll()
     stopHandoffService()
     stopInternalHTTPServer()
-  })
+  }
+
+  app.on('will-quit', cleanupChildProcesses)
+
+  // Also handle Ctrl+C (SIGINT) in dev mode — will-quit may not fire
+  process.on('SIGINT', () => { cleanupChildProcesses(); process.exit() })
+  process.on('SIGTERM', () => { cleanupChildProcesses(); process.exit() })
 })
 
 app.on('window-all-closed', () => {

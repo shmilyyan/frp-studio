@@ -140,17 +140,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 export function startInternalHTTPServer(): void {
   server = http.createServer(handleRequest)
   server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error('[FRP Studio] Internal HTTP port 19529 in use, retrying...')
-      setTimeout(() => {
-        server?.close()
-        server = http.createServer(handleRequest)
-        server.on('error', (e) => console.error('[FRP Studio] Internal HTTP error:', e.message))
-        server.listen(19529, '127.0.0.1')
-      }, 2000)
-    } else {
-      console.error('[FRP Studio] Internal HTTP error:', err.message)
-    }
+    console.error(`[FRP Studio] Internal HTTP server error: ${err.message}`)
   })
   server.listen(19529, '127.0.0.1', () => {
     console.log('[FRP Studio] Internal HTTP server on 127.0.0.1:19529')

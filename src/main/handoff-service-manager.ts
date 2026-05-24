@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 
@@ -45,10 +45,8 @@ function isServiceRunning(): boolean {
 }
 
 export function startHandoffService(): boolean {
-  if (isServiceRunning()) {
-    console.log('[FRP Studio] HandoffService is already running')
-    return true
-  }
+  // Always kill any previous instance first (prevents port-conflict orphan)
+  stopHandoffService()
 
   const jsPath = getServiceJsPath()
   const userDataPath = getUserDataPath()
@@ -101,7 +99,11 @@ export function stopHandoffService(): void {
   try {
     if (fs.existsSync(pidFile)) {
       const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10)
-      process.kill(pid, 'SIGTERM')
+      if (process.platform === 'win32') {
+        try { execSync(`taskkill //PID ${pid} //F //T`, { windowsHide: true, stdio: 'ignore' }) } catch { /* already dead */ }
+      } else {
+        try { process.kill(pid, 'SIGTERM') } catch { /* already dead */ }
+      }
       try { fs.unlinkSync(pidFile) } catch { /* ignore */ }
     }
   } catch (e) {
@@ -109,7 +111,7 @@ export function stopHandoffService(): void {
   }
 
   if (serviceProcess) {
-    serviceProcess.kill('SIGTERM')
+    try { serviceProcess.kill() } catch { /* ignore */ }
     serviceProcess = null
   }
 }
