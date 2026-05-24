@@ -36,6 +36,15 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         discoveredDevices.removeAll { $0.name == service.name }
     }
 
+    func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
+        logger.error("Bonjour 搜索失败: \(errorDict)")
+    }
+
+    func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
+        logger.warn("服务解析失败: \(sender.name) — \(errorDict)")
+        resolvingServices.remove(sender)
+    }
+
     func netServiceDidResolveAddress(_ sender: NetService) {
         defer { resolvingServices.remove(sender) }
         guard let hostName = sender.hostName else { return }

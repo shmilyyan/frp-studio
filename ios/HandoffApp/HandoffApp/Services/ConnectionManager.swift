@@ -39,7 +39,7 @@ class ConnectionManager: ObservableObject {
     private var currentDeviceId: String = ""
 
     // Task 10b: Device identity
-    private var deviceId: String = ""
+    private(set) var deviceId: String = ""
     private let identityKey = "handoff_identity"
 
     func startPolling() {

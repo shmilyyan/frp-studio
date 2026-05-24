@@ -10,13 +10,22 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             List {
-                // App version
+                // App version & device ID
                 Section {
                     HStack {
                         Text("版本")
                         Spacer()
                         Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                             .foregroundColor(.secondary)
+                    }
+                    if !connectionManager.deviceId.isEmpty {
+                        HStack {
+                            Text("设备ID")
+                            Spacer()
+                            Text(connectionManager.deviceId.prefix(8) + "...")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
                     }
                 }
 

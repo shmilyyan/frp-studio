@@ -9,9 +9,10 @@ struct HandoffApp: App {
     init() {
         logger.info("HandoffApp 启动 v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
         DiscoveryService.shared.startBrowsing()
-        // Start clipboard monitoring at app level so it works without switching tabs
-        ClipboardService.shared.onClipboardChanged = { [weak connectionManager] text in
-            connectionManager?.sendClipboard(text)
+        // Use strong ref — ConnectionManager is owned by App, no retain cycle
+        let mgr = connectionManager
+        ClipboardService.shared.onClipboardChanged = { text in
+            mgr.sendClipboard(text)
         }
         ClipboardService.shared.startMonitoring()
     }
