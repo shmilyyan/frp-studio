@@ -2,18 +2,6 @@ import http from 'http'
 import { addTransferHistory, listPairedDevices, addPairedDevice, deletePairedDevice } from './db'
 
 let server: http.Server | null = null
-const sseClients: Set<http.ServerResponse> = new Set()
-
-export function broadcastInternalSSE(event: string, data: unknown): void {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-  for (const client of sseClients) {
-    try {
-      client.write(payload)
-    } catch {
-      sseClients.delete(client)
-    }
-  }
-}
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
@@ -50,7 +38,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         const { deviceId, type, direction, detail, size, status } = JSON.parse(body || '{}')
         const devices = listPairedDevices()
         const device = deviceId ? devices.find((d) => d.device_id === deviceId) : undefined
-        const record = addTransferHistory({
+        addTransferHistory({
           device_id: device?.id || 0,
           type: type || 'clipboard',
           direction: direction || 'send',
@@ -58,7 +46,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           size: size || 0,
           status: status || 'success'
         })
-        broadcastInternalSSE('transfer-recorded', record)
+        // Event notified via socket.io
         res.writeHead(200)
         res.end(JSON.stringify({ success: true }))
       } catch (e) {
@@ -81,7 +69,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             public_key: publicKey
           })
         }
-        broadcastInternalSSE('device-paired', { deviceId, deviceName })
+        // Event notified via socket.io
         res.writeHead(200)
         res.end(JSON.stringify({ success: true }))
       } catch (e) {
@@ -98,7 +86,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         const device = listPairedDevices().find((d) => d.device_id === deviceId)
         if (device) {
           deletePairedDevice(device.id)
-          broadcastInternalSSE('device-revoked', { deviceId })
+          // Event notified via socket.io
           res.writeHead(200)
           res.end(JSON.stringify({ success: true }))
         } else {
@@ -109,21 +97,6 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         res.writeHead(400)
         res.end(JSON.stringify({ error: String(e) }))
       }
-      return
-    }
-
-    // GET /internal/events — SSE for main process IPC to forward
-    if (req.method === 'GET' && url === '/internal/events') {
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive'
-      })
-      res.write('event: connected\ndata: {}\n\n')
-      sseClients.add(res)
-      const cleanup = () => sseClients.delete(res)
-      req.on('close', cleanup)
-      req.on('error', cleanup)
       return
     }
 
