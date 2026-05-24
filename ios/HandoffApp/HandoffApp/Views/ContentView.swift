@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var connectionManager: ConnectionManager
+    @EnvironmentObject var discoveryService: DiscoveryService
     @EnvironmentObject var logger: DebugLogger
     @State private var showPairing = false
     @State private var showLogs = false
@@ -22,6 +23,26 @@ struct ContentView: View {
                         HStack {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red)
                             Text(error).foregroundColor(.red).font(.caption)
+                        }
+                    }
+                }
+
+                // Discovered devices
+                Section("发现的设备") {
+                    if discoveryService.discoveredDevices.isEmpty {
+                        Text("正在搜索...").foregroundColor(.secondary)
+                    }
+                    ForEach(discoveryService.discoveredDevices) { device in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(device.name).font(.subheadline)
+                                Text("\(device.host):\(device.port)").font(.caption).foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button("连接") {
+                                connectionManager.baseURL = "\(device.host):\(device.port)"
+                                logger.info("手动连接设备: \(device.name)")
+                            }
                         }
                     }
                 }
@@ -68,6 +89,12 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+            }
+            .onAppear {
+                ClipboardService.shared.onClipboardChanged = { text in
+                    connectionManager.sendClipboard(text)
+                }
+                ClipboardService.shared.startMonitoring()
             }
             .navigationTitle("Handoff")
             .toolbar {
