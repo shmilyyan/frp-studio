@@ -11,6 +11,7 @@ import { frpcManager } from './frpc'
 import { checkFrpExists, autoDownloadLatest, getLatestVersion, getInstalledFrpVersion } from './downloader'
 import { registerHandoffHandlers } from './ipc/handoff'
 import { startHandoffService, stopHandoffService } from './handoff-service-manager'
+import { startInternalHTTPServer, stopInternalHTTPServer } from './internal-http'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -178,6 +179,9 @@ app.whenReady().then(async () => {
   // Start HandoffService background process
   startHandoffService()
 
+  // Start internal HTTP server for HandoffService callbacks
+  startInternalHTTPServer()
+
   // frpc 状态变化时刷新托盘菜单
   frpcManager.onStatusChange(() => refreshTrayMenu(win))
 
@@ -194,6 +198,7 @@ app.whenReady().then(async () => {
   app.on('will-quit', () => {
     frpcManager.stopAll()
     stopHandoffService()
+    stopInternalHTTPServer()
   })
 })
 
