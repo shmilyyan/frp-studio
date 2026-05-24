@@ -7,6 +7,7 @@ type MessageHandler = (ws: WebSocket, message: unknown) => void
 const handlers: Map<string, MessageHandler> = new Map()
 let wss: WebSocketServer | null = null
 const connectedClients: Map<string, WebSocket> = new Map()
+const clientIdByWs: WeakMap<WebSocket, string> = new WeakMap()
 
 export function registerHandler(type: string, handler: MessageHandler): void {
   handlers.set(type, handler)
@@ -18,6 +19,7 @@ export function startWebSocketServer(server: http.Server): WebSocketServer {
   wss.on('connection', (ws, _req) => {
     const clientId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     connectedClients.set(clientId, ws)
+    clientIdByWs.set(ws, clientId)
     broadcastSSE('ws-connection', { clientId, connected: connectedClients.size })
 
     ws.on('message', (raw, isBinary) => {
@@ -45,11 +47,13 @@ export function startWebSocketServer(server: http.Server): WebSocketServer {
 
     ws.on('close', () => {
       connectedClients.delete(clientId)
+      clientIdByWs.delete(ws)
       broadcastSSE('ws-disconnection', { clientId, connected: connectedClients.size })
     })
 
     ws.on('error', () => {
       connectedClients.delete(clientId)
+      clientIdByWs.delete(ws)
     })
   })
 
@@ -67,11 +71,16 @@ export function sendToClient(ws: WebSocket, type: string, data: unknown): void {
   }
 }
 
-export function broadcastToAll(type: string, data: unknown): void {
-  const payload = JSON.stringify({ type, ...(data as object) })
-  for (const ws of connectedClients.values()) {
+export function broadcastToAll(type: string, data: Record<string, unknown>, excludeClientId?: string): void {
+  const payload = JSON.stringify({ type, ...data })
+  for (const [id, ws] of connectedClients.entries()) {
+    if (id === excludeClientId) continue
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(payload)
     }
   }
+}
+
+export function getClientId(ws: WebSocket): string | undefined {
+  return clientIdByWs.get(ws)
 }

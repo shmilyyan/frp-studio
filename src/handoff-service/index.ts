@@ -53,11 +53,14 @@ async function main(): Promise<void> {
   })
 
   // Receive clipboard content from iOS peers
-  registerHandler('clipboard', (_ws, msg) => {
+  registerHandler('clipboard', (ws, msg) => {
     const { writeClipboard } = require('./clipboard')
+    const { getClientId, broadcastToAll } = require('./ws-server')
     const payload = (msg as { payload: string }).payload
     if (payload && typeof payload === 'string' && payload.length > 0) {
       writeClipboard(payload)
+      const sourceId = getClientId(ws)
+      broadcastToAll('clipboard', { payload, hash: '', sourceId }, sourceId)
       console.log(`[HandoffService] Clipboard received from iOS (${payload.length} chars)`)
     }
   })
@@ -70,7 +73,9 @@ async function main(): Promise<void> {
   const { startClipboardWatcher } = await import('./clipboard')
   const { broadcastToAll } = await import('./ws-server')
   startClipboardWatcher((content) => {
-    broadcastToAll('clipboard', { payload: content, timestamp: Date.now() })
+    const { getLatestClipboard } = require('./clipboard')
+    const { hash } = getLatestClipboard()
+    broadcastToAll('clipboard', { payload: content, hash, timestamp: Date.now() })
   })
 
   console.log('[HandoffService] All modules started')
