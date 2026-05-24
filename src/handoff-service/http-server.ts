@@ -19,17 +19,6 @@ function getAppVersion(): string {
   return '0.0.0'
 }
 
-type SSEClient = http.ServerResponse
-
-const sseClients: Set<SSEClient> = new Set()
-
-export function broadcastSSE(event: string, data: unknown): void {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-  for (const client of sseClients) {
-    client.write(payload)
-  }
-}
-
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -44,19 +33,6 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
   const url = req.url || '/'
 
-  // SSE event stream
-  if (req.method === 'GET' && url === '/events') {
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
-    })
-    res.write(`event: connected\ndata: {}\n\n`)
-    sseClients.add(res)
-    req.on('close', () => sseClients.delete(res))
-    return
-  }
-
   // Health check
   if (req.method === 'GET' && url === '/health') {
     const cfg = getConfig()
@@ -64,7 +40,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     res.end(JSON.stringify({
       status: 'running',
       uptime: process.uptime(),
-      connections: sseClients.size,
+      connections: 0,  // now tracked by socket.io
       version: getAppVersion(),
       config: {
         deviceName: cfg.device.name,
@@ -97,7 +73,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   // Reload config (notifies service to hot-reload without restart)
   if (req.method === 'POST' && url === '/config') {
     reloadConfig()
-    broadcastSSE('config-reloaded', {})
+    // Config reloaded — notified via socket.io
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({ success: true }))
     return
@@ -107,7 +83,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   if (req.method === 'POST' && url === '/restart') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({ success: true }))
-    broadcastSSE('restarting', {})
+    // Restart signal — notified via socket.io
     setTimeout(() => process.exit(0), 500)
     return
   }
@@ -135,7 +111,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           cbRes.on('end', () => {
             res.writeHead(200)
             res.end(JSON.stringify({ success: true }))
-            broadcastSSE('device-paired', { deviceId, deviceName })
+            // Device paired — notified via socket.io
             console.log(`[HandoffService] Device registered via HTTP: ${deviceName} (${deviceId})`)
           })
         })
@@ -235,7 +211,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         req.write(postData)
         req.end()
 
-        broadcastSSE('device-paired', { deviceName: pending.deviceName })
+        // Device paired — notified via socket.io
         res.writeHead(200)
         res.end(JSON.stringify({ success: true }))
       } catch (e) {
@@ -267,7 +243,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
     res.writeHead(200)
     res.end(JSON.stringify({ success: true }))
-    broadcastSSE('device-revoked', { deviceId })
+    // Device revoked — notified via socket.io
     return
   }
 
