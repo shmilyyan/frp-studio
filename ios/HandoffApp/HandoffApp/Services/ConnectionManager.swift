@@ -198,7 +198,7 @@ class ConnectionManager: ObservableObject {
                 if now.timeIntervalSince(self.lastLocalCopyTime) < 2.0 { return }
                 self.lastRemoteClipboardHash = hash
                 self.clipboardContent = payload
-                UIPasteboard.general.string = payload
+                ClipboardService.shared.setClipboard(payload)
                 self.logger.warn("剪贴板已同步 (\(payload.count) 字符)")
             }
         }.resume()
@@ -253,7 +253,7 @@ class ConnectionManager: ObservableObject {
             case "clipboard":
                 self.clipboardContent = json["payload"] as? String
                 if let content = self.clipboardContent {
-                    UIPasteboard.general.string = content
+                    ClipboardService.shared.setClipboard(content)
                     self.logger.info("剪贴板已更新 (\(content.count) 字符)")
                 }
             case "file:offer":
@@ -343,7 +343,7 @@ class ConnectionManager: ObservableObject {
                 let now = Date()
                 if now.timeIntervalSince(self.lastLocalCopyTime) > 2.0 {
                     self.lastRemoteClipboardHash = hash
-                    UIPasteboard.general.string = payload
+                    ClipboardService.shared.setClipboard(payload)
                     self.clipboardContent = payload
                     self.logger.warn("剪贴板已同步 (\(payload.count) 字符)")
                 }

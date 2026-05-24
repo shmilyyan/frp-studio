@@ -69,5 +69,6 @@ class ClipboardService: NSObject, ObservableObject {
     func setClipboard(_ text: String) {
         UIPasteboard.general.string = text
         lastSentHash = sha256(text)
+        lastChangeCount = UIPasteboard.general.changeCount  // prevent re-detection loop
     }
 }
