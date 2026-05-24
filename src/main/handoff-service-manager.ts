@@ -55,17 +55,18 @@ function isServiceRunning(): boolean {
 function killPortProcess(port: number): void {
   if (process.platform !== 'win32') return
   try {
-    // Use PowerShell to find PID on the port — more reliable than parsing netstat
-    const psCmd = `Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess`
-    const pid = execSync(`powershell -NoProfile -WindowStyle Hidden -Command "${psCmd}"`, {
+    const psCmd = `(Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue).OwningProcess | Where-Object { $_ -gt 0 } | Select-Object -Unique`
+    const output = execSync(`powershell -NoProfile -WindowStyle Hidden -Command "${psCmd}"`, {
       encoding: 'utf-8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore']
     }).trim()
-    if (pid) {
-      console.log(`[FRP Studio] Port ${port} occupied by PID ${pid}, killing...`)
+    if (!output) { console.log(`[FRP Studio] Port ${port} is free`); return }
+    const pids = output.split('\n').map((s: string) => s.trim()).filter(Boolean)
+    for (const pid of pids) {
+      console.log(`[FRP Studio] Killing process on port ${port} (PID ${pid})`)
       execSync(`taskkill //PID ${pid} //F //T`, { windowsHide: true, stdio: 'ignore' })
-      // Wait a moment for the port to release
-      execSync('timeout //T 1 //NOBREAK', { windowsHide: true, stdio: 'ignore' })
     }
+    // Wait for port release
+    execSync('timeout //T 1 //NOBREAK', { windowsHide: true, stdio: 'ignore' })
   } catch {
     console.log(`[FRP Studio] Port ${port} is free or could not check`)
   }
