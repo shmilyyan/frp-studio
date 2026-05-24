@@ -13,6 +13,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
+    "dev:full": "npm run build:handoff && electron-vite dev",
     "build:handoff": "npx esbuild src/handoff-service/index.ts --bundle --platform=node --target=node18 --outfile=out/handoff-service/index.js --external:electron --external:sql.js",
     "build": "npm run typecheck && npm run build:handoff && electron-vite build && electron-builder",
     "build:win": "npm run build -- --win",
