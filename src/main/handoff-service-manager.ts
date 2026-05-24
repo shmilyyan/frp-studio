@@ -59,13 +59,10 @@ export function startHandoffService(): boolean {
   console.log(`[FRP Studio] Starting HandoffService: ${jsPath}`)
 
   serviceProcess = spawn('node', [jsPath, userDataPath], {
-    detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
     env: { ...process.env, LC_ALL: 'en_US.UTF-8' }
   })
-
-  serviceProcess.unref()
 
   serviceProcess.stdout?.on('data', (data: Buffer) => {
     const line = data.toString().trim()
