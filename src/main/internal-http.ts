@@ -7,7 +7,11 @@ const sseClients: Set<http.ServerResponse> = new Set()
 export function broadcastInternalSSE(event: string, data: unknown): void {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
   for (const client of sseClients) {
-    client.write(payload)
+    try {
+      client.write(payload)
+    } catch {
+      sseClients.delete(client)
+    }
   }
 }
 
@@ -46,8 +50,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         const { deviceId, type, direction, detail, size, status } = JSON.parse(body || '{}')
         const devices = listPairedDevices()
         const device = devices.find((d) => d.device_id === deviceId)
+        if (!device) {
+          res.writeHead(400)
+          res.end(JSON.stringify({ error: 'device not found' }))
+          return
+        }
         const record = addTransferHistory({
-          device_id: device?.id || 0,
+          device_id: device.id,
           type: type || 'clipboard',
           direction: direction || 'send',
           detail: detail || '',
@@ -96,7 +105,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       })
       res.write('event: connected\ndata: {}\n\n')
       sseClients.add(res)
-      req.on('close', () => sseClients.delete(res))
+      const cleanup = () => sseClients.delete(res)
+      req.on('close', cleanup)
+      req.on('error', cleanup)
       return
     }
 
@@ -107,6 +118,19 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
 export function startInternalHTTPServer(): void {
   server = http.createServer(handleRequest)
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error('[FRP Studio] Internal HTTP port 19529 in use, retrying...')
+      setTimeout(() => {
+        server?.close()
+        server = http.createServer(handleRequest)
+        server.on('error', (e) => console.error('[FRP Studio] Internal HTTP error:', e.message))
+        server.listen(19529, '127.0.0.1')
+      }, 2000)
+    } else {
+      console.error('[FRP Studio] Internal HTTP error:', err.message)
+    }
+  })
   server.listen(19529, '127.0.0.1', () => {
     console.log('[FRP Studio] Internal HTTP server on 127.0.0.1:19529')
   })
