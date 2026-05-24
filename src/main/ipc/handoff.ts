@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron'
+import http from 'http'
 import {
   listTransferHistory,
   clearTransferHistory
@@ -88,6 +89,42 @@ export function registerHandoffHandlers(): void {
   ipcMain.handle('handoff:clear-history', async () => {
     clearTransferHistory()
     return { success: true }
+  })
+
+  // ─── Clipboard test helpers (via IPC, bypasses browser CSP) ─────────────
+
+  ipcMain.handle('handoff:clipboard-get', async () => {
+    return new Promise((resolve) => {
+      http.get('http://127.0.0.1:19528/clipboard/latest', (res) => {
+        let data = ''
+        res.on('data', (c: Buffer) => { data += c })
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)) }
+          catch { resolve({ payload: '', error: 'parse failed' }) }
+        })
+      }).on('error', (e) => resolve({ payload: '', error: e.message }))
+    })
+  })
+
+  ipcMain.handle('handoff:clipboard-send', async (_e, text: string) => {
+    return new Promise((resolve) => {
+      const body = JSON.stringify({ payload: text })
+      const req = http.request({
+        hostname: '127.0.0.1', port: 19528, path: '/clipboard',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      }, (res) => {
+        let data = ''
+        res.on('data', (c: Buffer) => { data += c })
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)) }
+          catch { resolve({ success: false, error: 'parse failed' }) }
+        })
+      })
+      req.on('error', (e) => resolve({ success: false, error: e.message }))
+      req.write(body)
+      req.end()
+    })
   })
 
   // ─── SSE events forwarded to renderer ───────────────────────────────────

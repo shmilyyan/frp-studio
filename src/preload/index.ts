@@ -101,6 +101,8 @@ const api = {
       ipcRenderer.invoke('handoff:transfer-history', type, limit),
     clearHistory: () => ipcRenderer.invoke('handoff:clear-history'),
     notifyConfig: () => ipcRenderer.invoke('handoff:notify-config'),
+    clipboardGet: () => ipcRenderer.invoke('handoff:clipboard-get'),
+    clipboardSend: (text: string) => ipcRenderer.invoke('handoff:clipboard-send', text),
     connectSSE: () => ipcRenderer.invoke('handoff:connect-sse'),
     disconnectSSE: () => ipcRenderer.invoke('handoff:disconnect-sse'),
     onEvent: (cb: (data: { event: string; data: unknown }) => void) => {

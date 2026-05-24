@@ -9,9 +9,27 @@ class ConnectionManager: ObservableObject {
     @Published var isConnecting = false
     @Published var connectionError: String?
 
-    var baseURL: String = ""
+    var baseURL: String = "" {
+        didSet {
+            if !baseURL.isEmpty { startPolling() } else { stopPolling() }
+        }
+    }
     private var webSocket: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
+    private var pollTimer: Timer?
+
+    func startPolling() {
+        stopPolling()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            self?.pullClipboard()
+        }
+        logger.info("剪贴板轮询已启动 (3s)")
+    }
+
+    func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
     private let logger = DebugLogger.shared
     private let storageKey = "handoff_paired_devices"
 

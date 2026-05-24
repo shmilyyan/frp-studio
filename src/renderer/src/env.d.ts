@@ -149,6 +149,8 @@ declare global {
         transferHistory(type?: string, limit?: number): Promise<unknown[]>
         clearHistory(): Promise<{ success: boolean }>
         notifyConfig(): Promise<{ success: boolean }>
+        clipboardGet(): Promise<{ payload?: string; error?: string }>
+        clipboardSend(text: string): Promise<{ success?: boolean; written?: number; error?: string }>
         connectSSE(): Promise<void>
         disconnectSSE(): Promise<void>
         onEvent(cb: (data: { event: string; data: unknown }) => void): () => void

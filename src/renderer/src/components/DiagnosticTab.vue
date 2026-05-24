@@ -108,19 +108,16 @@ async function testGet(): Promise<void> {
   testResult.value = ''
   testError.value = ''
   addLog('info', '测试: 获取剪贴板')
-  try {
-    const res = await fetch('http://127.0.0.1:19528/clipboard/latest')
-    const data = await res.json()
-    if (data.payload) {
-      testResult.value = data.payload
-      addLog('info', `剪贴板获取成功 (${data.payload.length} 字符)`)
-    } else {
-      testError.value = '剪贴板为空'
-      addLog('warn', '剪贴板为空')
-    }
-  } catch (e) {
-    testError.value = '请求失败: ' + String(e)
-    addLog('error', '请求失败: ' + String(e))
+  const data = await window.api.handoff.clipboardGet() as any
+  if (data?.payload) {
+    testResult.value = String(data.payload)
+    addLog('info', `剪贴板获取成功 (${testResult.value.length} 字符)`)
+  } else if (data?.error) {
+    testError.value = '错误: ' + data.error
+    addLog('error', '获取失败: ' + data.error)
+  } else {
+    testError.value = '剪贴板为空'
+    addLog('warn', '剪贴板为空')
   }
   getLoading.value = false
 }
@@ -131,17 +128,13 @@ async function testSend(): Promise<void> {
   testResult.value = ''
   testError.value = ''
   addLog('info', `测试: 发送剪贴板 (${testText.value.length} 字符)`)
-  try {
-    await fetch('http://127.0.0.1:19528/clipboard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload: testText.value })
-    })
+  const data = await window.api.handoff.clipboardSend(testText.value) as any
+  if (data?.success || data?.written) {
     testResult.value = '已发送'
     addLog('info', '剪贴板发送成功')
-  } catch (e) {
-    testError.value = '请求失败: ' + String(e)
-    addLog('error', '请求失败: ' + String(e))
+  } else {
+    testError.value = '错误: ' + (data?.error || 'unknown')
+    addLog('error', '发送失败: ' + (data?.error || 'unknown'))
   }
   sendLoading.value = false
 }
