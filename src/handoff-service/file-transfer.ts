@@ -2,9 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import os from 'os'
-import { WebSocket } from 'ws'
 import { getConfig } from './config'
-import { sendToClient } from './ws-server'
 
 const CHUNK_SIZE = 256 * 1024 // 256KB
 const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
