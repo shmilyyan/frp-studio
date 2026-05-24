@@ -4,6 +4,24 @@ import os from 'os'
 
 let mdns: multicastDns.MulticastDNS | null = null
 
+function getVersion(): string {
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    // Try relative to cwd (project root when running via dev:full), then relative to script
+    const locations = [
+      path.join(process.cwd(), 'VERSION'),
+      path.join(__dirname, '..', '..', '..', 'VERSION')
+    ]
+    for (const loc of locations) {
+      if (fs.existsSync(loc)) {
+        return fs.readFileSync(loc, 'utf-8').trim()
+      }
+    }
+  } catch { /* fall through */ }
+  return '0.1.0'
+}
+
 export function startMDNSBroadcast(): void {
   const config = getConfig()
   mdns = multicastDns()
@@ -41,7 +59,7 @@ export function startMDNSBroadcast(): void {
         data: Buffer.from(JSON.stringify({
           deviceName: deviceName,
           platform: 'windows',
-          version: '0.1.0'
+          version: getVersion()
         }))
       }]
     })
