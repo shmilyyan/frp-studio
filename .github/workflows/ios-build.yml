@@ -14,19 +14,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read version
-        id: ver
-        run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
-
       - name: Compute version
         id: version
         run: |
-          MARKETING_VERSION="${{ steps.ver.outputs.version }}"
-          BUILD_NUMBER=$(date +%Y%m%d%H%M)
+          MARKETING_VERSION="$(cat VERSION)"
+          PATCH=$(git rev-list --count HEAD)
+          FULL_VERSION="${MARKETING_VERSION}.${PATCH}"
           SHORT_HASH=$(git rev-parse --short=7 HEAD)
-          FULL_VERSION="${MARKETING_VERSION}.${BUILD_NUMBER}"
-          echo "marketing_version=${MARKETING_VERSION}" >> $GITHUB_OUTPUT
-          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "marketing_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
+          echo "build_number=${PATCH}" >> $GITHUB_OUTPUT
           echo "full_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
           echo "short_hash=${SHORT_HASH}" >> $GITHUB_OUTPUT
           echo "Version: ${FULL_VERSION} (${SHORT_HASH})"

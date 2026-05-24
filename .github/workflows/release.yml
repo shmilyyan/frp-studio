@@ -117,15 +117,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read version
-        id: ver
-        run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
-
       - name: Compute iOS version
         id: ios-version
         run: |
-          BUILD_NUMBER=$(date +%Y%m%d%H%M)
-          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          MARKETING_VERSION="$(cat VERSION)"
+          PATCH=$(git rev-list --count HEAD)
+          FULL_VERSION="${MARKETING_VERSION}.${PATCH}"
+          echo "marketing_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
+          echo "build_number=${PATCH}" >> $GITHUB_OUTPUT
 
       - name: Install tools
         run: brew install xcodegen librsvg
@@ -153,7 +152,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             CURRENT_PROJECT_VERSION=${{ steps.ios-version.outputs.build_number }} \
-            MARKETING_VERSION=${{ steps.ver.outputs.version }}
+            MARKETING_VERSION=${{ steps.ios-version.outputs.marketing_version }}
 
       - name: Package IPA
         run: |
@@ -168,7 +167,7 @@ jobs:
         run: |
           curl -F "file=@ios/HandoffApp/build/HandoffApp.ipa" \
             -F "_api_key=${{ secrets.PGYER_API_KEY }}" \
-            -F "buildUpdateDescription=FRP Studio iOS v${{ steps.ver.outputs.version }} (${{ steps.ios-version.outputs.build_number }})" \
+            -F "buildUpdateDescription=FRP Studio iOS v${{ steps.ios-version.outputs.marketing_version }} (${{ steps.ios-version.outputs.build_number }})" \
             https://www.pgyer.com/apiv2/app/upload
 
       - name: Upload iOS artifact
