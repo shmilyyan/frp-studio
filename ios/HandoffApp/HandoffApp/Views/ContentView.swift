@@ -111,6 +111,9 @@ struct ContentView: View {
                     }
                 }
             }
+            .onAppear {
+                DiscoveryService.shared.startBrowsing()
+            }
             .navigationTitle("Handoff")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

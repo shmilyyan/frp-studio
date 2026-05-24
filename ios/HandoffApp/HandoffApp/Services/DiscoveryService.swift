@@ -16,11 +16,13 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     }
 
     func startBrowsing() {
-        logger.info("Bonjour 浏览器启动: _handoff._tcp.")
+        logger.info("Bonjour 浏览器启动: _handoff._tcp")
         retryCount = 0
+        browser?.stop()
         browser = NetServiceBrowser()
         browser?.delegate = self
-        browser?.searchForServices(ofType: "_handoff._tcp.", inDomain: "local.")
+        // Use empty domain for default browse domains; no trailing dot on type
+        browser?.searchForServices(ofType: "_handoff._tcp", inDomain: "")
     }
 
     func stopBrowsing() {
@@ -44,7 +46,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         retryCount += 1
         if retryCount <= maxRetries {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                self?.browser?.searchForServices(ofType: "_handoff._tcp.", inDomain: "local.")
+                self?.browser?.searchForServices(ofType: "_handoff._tcp", inDomain: "")
             }
         }
     }
