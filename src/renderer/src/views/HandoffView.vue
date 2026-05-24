@@ -20,6 +20,9 @@
       <a-tab-pane key="settings" tab="服务设置">
         <HandoffSettings />
       </a-tab-pane>
+      <a-tab-pane key="diagnostic" tab="诊断">
+        <DiagnosticTab />
+      </a-tab-pane>
     </a-tabs>
   </div>
 </template>
@@ -30,6 +33,7 @@ import { useHandoffStore } from '../stores/handoff'
 import DeviceList from '../components/DeviceList.vue'
 import TransferHistory from '../components/TransferHistory.vue'
 import HandoffSettings from '../components/HandoffSettings.vue'
+import DiagnosticTab from '../components/DiagnosticTab.vue'
 
 const store = useHandoffStore()
 const activeTab = ref('devices')
