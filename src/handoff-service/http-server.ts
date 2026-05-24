@@ -1,6 +1,4 @@
 import http from 'http'
-import fs from 'fs'
-import path from 'path'
 import { getConfig, reloadConfig } from './config'
 
 function getAppVersion(): string {
@@ -79,12 +77,20 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     return
   }
 
-  // List paired devices
+  // List paired devices — proxy to main process SQLite
   if (req.method === 'GET' && url === '/devices') {
-    reloadConfig()
-    const config = getConfig()
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-    res.end(JSON.stringify(config.pairedDevices))
+    http.get('http://127.0.0.1:19529/internal/devices', (proxyRes) => {
+      const chunks: Buffer[] = []
+      proxyRes.on('data', (c: Buffer) => { chunks.push(c) })
+      proxyRes.on('end', () => {
+        const data = Buffer.concat(chunks).toString('utf-8')
+        res.writeHead(200)
+        res.end(data)
+      })
+    }).on('error', () => {
+      res.writeHead(200)
+      res.end('[]')
+    })
     return
   }
 
@@ -161,18 +167,30 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           res.end(JSON.stringify({ success: false, error: 'invalid or expired pairing' }))
           return
         }
-        // Add to paired devices config
-        const config = getConfig()
-        const configPath = path.join(process.argv[2] || path.join(process.env.APPDATA || '', 'frp-studio'), 'handoff.json')
-        config.pairedDevices.push({
+        // Callback to main process internal HTTP server to save device
+        const postData = JSON.stringify({
           deviceId: deviceInfo?.deviceId || pending.publicKey.slice(0, 16),
           deviceName: pending.deviceName,
           publicKey: pending.publicKey,
-          enabled: true
+          platform: deviceInfo?.platform || 'ios'
         })
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+        const req = http.request({
+          hostname: '127.0.0.1', port: 19529, path: '/internal/paired-device',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+        }, (cbRes) => {
+          let cbData = ''
+          cbRes.on('data', (c: Buffer) => { cbData += c.toString('utf-8') })
+          cbRes.on('end', () => {
+            try { JSON.parse(cbData) } catch { /* ignore */ }
+          })
+        })
+        req.on('error', (e) => console.error('[HandoffService] Failed to save device:', e.message))
+        req.write(postData)
+        req.end()
+
         broadcastSSE('device-paired', { deviceName: pending.deviceName })
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.writeHead(200)
         res.end(JSON.stringify({ success: true }))
       } catch (e) {
         res.writeHead(400)
@@ -182,16 +200,28 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     return
   }
 
-  // Revoke paired device
+  // Revoke paired device — proxy to main process SQLite
   if (req.method === 'POST' && url?.startsWith('/pair/revoke/')) {
-    const deviceIdToRevoke = url.split('/').pop()
-    const config = getConfig()
-    const configPath = path.join(process.argv[2] || path.join(process.env.APPDATA || '', 'frp-studio'), 'handoff.json')
-    config.pairedDevices = config.pairedDevices.filter((d) => d.deviceId !== deviceIdToRevoke)
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+    const deviceId = url.split('/').pop()
+    const postData = JSON.stringify({ deviceId })
+    const revokeReq = http.request({
+      hostname: '127.0.0.1', port: 19529, path: '/internal/revoke-device',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+    }, (cbRes) => {
+      let cbData = ''
+      cbRes.on('data', (c: Buffer) => { cbData += c.toString('utf-8') })
+      cbRes.on('end', () => {
+        try { JSON.parse(cbData) } catch { /* ignore */ }
+      })
+    })
+    revokeReq.on('error', (e) => console.error('[HandoffService] Failed to revoke device:', e.message))
+    revokeReq.write(postData)
+    revokeReq.end()
+
+    res.writeHead(200)
     res.end(JSON.stringify({ success: true }))
-    broadcastSSE('device-revoked', { deviceId: deviceIdToRevoke })
+    broadcastSSE('device-revoked', { deviceId })
     return
   }
 
@@ -207,7 +237,6 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       version: getAppVersion(),
       wsClients: getConnectedClients(),
       clipboardCache: getLatestClipboard().hash ? 'has content' : 'empty',
-      pairedDevices: cfg.pairedDevices.length,
       clipboardSync: cfg.features.clipboardSync,
       fileTransfer: cfg.features.fileTransfer
     }))

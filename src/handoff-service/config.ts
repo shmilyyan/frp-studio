@@ -20,20 +20,13 @@ export interface HandoffConfig {
     nodeId: number | null
     remotePort: number
   }
-  pairedDevices: Array<{
-    deviceId: string
-    deviceName: string
-    publicKey: string
-    enabled: boolean
-  }>
 }
 
 const defaultConfig: HandoffConfig = {
   server: { port: 19528, bindAddress: '0.0.0.0' },
   device: { name: 'My-Windows-PC', downloadDir: '' },
   features: { clipboardSync: true, fileTransfer: true, clipboardMaxSize: 1048576 },
-  frpTunnel: { enabled: false, nodeId: null, remotePort: 19528 },
-  pairedDevices: []
+  frpTunnel: { enabled: false, nodeId: null, remotePort: 19528 }
 }
 
 let configPath = ''
@@ -52,6 +45,9 @@ export function loadConfig(configDir: string): HandoffConfig {
         device: { ...defaultConfig.device, ...(parsed.device || {}) },
         features: { ...defaultConfig.features, ...(parsed.features || {}) },
         frpTunnel: { ...defaultConfig.frpTunnel, ...(parsed.frpTunnel || {}) }
+      }
+      if (parsed.pairedDevices && parsed.pairedDevices.length > 0) {
+        console.log(`[HandoffService] Found ${parsed.pairedDevices.length} legacy paired devices in config — migration is handled by main process`)
       }
     } else {
       fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8')
@@ -79,6 +75,9 @@ export function reloadConfig(): HandoffConfig {
       device: { ...defaultConfig.device, ...(parsed.device || {}) },
       features: { ...defaultConfig.features, ...(parsed.features || {}) },
       frpTunnel: { ...defaultConfig.frpTunnel, ...(parsed.frpTunnel || {}) }
+    }
+    if (parsed.pairedDevices && parsed.pairedDevices.length > 0) {
+      console.log(`[HandoffService] Found ${parsed.pairedDevices.length} legacy paired devices in config — migration is handled by main process`)
     }
   } catch { /* keep current config */ }
   return config

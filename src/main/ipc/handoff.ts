@@ -2,7 +2,9 @@ import { ipcMain, BrowserWindow } from 'electron'
 import http from 'http'
 import {
   listTransferHistory,
-  clearTransferHistory
+  clearTransferHistory,
+  listPairedDevices,
+  deletePairedDevice
 } from '../db'
 import {
   startHandoffService,
@@ -13,10 +15,8 @@ import {
 } from '../handoff-service-manager'
 import {
   getHealth,
-  getPairedDevices,
   notifyConfigChanged,
   generatePairingQR,
-  revokeDevice as revokeServiceDevice,
   connectSSE,
   startHealthCheck,
   stopHealthCheck
@@ -53,16 +53,21 @@ export function registerHandoffHandlers(): void {
   // ─── Paired devices ─────────────────────────────────────────────────────
 
   ipcMain.handle('handoff:list-devices', async () => {
-    try {
-      return await getPairedDevices()
-    } catch {
-      return []
-    }
+    return listPairedDevices().map((d) => ({
+      deviceId: d.device_id,
+      deviceName: d.device_name,
+      publicKey: d.public_key,
+      enabled: !!d.enabled
+    }))
   })
 
   ipcMain.handle('handoff:delete-device', async (_e, deviceId: string) => {
-    const result = await revokeServiceDevice(deviceId)
-    return result
+    const device = listPairedDevices().find((d) => d.device_id === deviceId)
+    if (device) {
+      deletePairedDevice(device.id)
+      return { success: true }
+    }
+    return { success: false }
   })
 
   ipcMain.handle('handoff:notify-config', async () => {
@@ -141,6 +146,30 @@ export function registerHandoffHandlers(): void {
       if (rendererWin.isDestroyed()) return
       rendererWin.webContents.send('handoff:event', { event: evt, data })
     })
+
+    // Also connect to internal HTTP server SSE for transfer-recorded, device-paired
+    const internalReq = http.get('http://127.0.0.1:19529/internal/events', (res) => {
+      let buffer = ''
+      res.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString('utf-8')
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        let currentEvent = ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (!rendererWin.isDestroyed()) {
+                rendererWin.webContents.send('handoff:event', { event: currentEvent, data })
+              }
+            } catch { /* ignore */ }
+          }
+        }
+      })
+    })
+    internalReq.on('error', () => { /* internal SSE not critical */ })
 
     startHealthCheck((status) => {
       if (rendererWin.isDestroyed()) return

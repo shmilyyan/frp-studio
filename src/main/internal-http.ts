@@ -1,5 +1,5 @@
 import http from 'http'
-import { addTransferHistory, listPairedDevices, addPairedDevice } from './db'
+import { addTransferHistory, listPairedDevices, addPairedDevice, deletePairedDevice } from './db'
 
 let server: http.Server | null = null
 const sseClients: Set<http.ServerResponse> = new Set()
@@ -89,6 +89,27 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         broadcastInternalSSE('device-paired', { deviceId, deviceName })
         res.writeHead(200)
         res.end(JSON.stringify({ success: true }))
+      } catch (e) {
+        res.writeHead(400)
+        res.end(JSON.stringify({ error: String(e) }))
+      }
+      return
+    }
+
+    // POST /internal/revoke-device
+    if (req.method === 'POST' && url === '/internal/revoke-device') {
+      try {
+        const { deviceId } = JSON.parse(body || '{}')
+        const device = listPairedDevices().find((d) => d.device_id === deviceId)
+        if (device) {
+          deletePairedDevice(device.id)
+          broadcastInternalSSE('device-revoked', { deviceId })
+          res.writeHead(200)
+          res.end(JSON.stringify({ success: true }))
+        } else {
+          res.writeHead(404)
+          res.end(JSON.stringify({ error: 'device not found' }))
+        }
       } catch (e) {
         res.writeHead(400)
         res.end(JSON.stringify({ error: String(e) }))
