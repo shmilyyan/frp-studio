@@ -1,52 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="bgC" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#051510"/>
-      <stop offset="100%" stop-color="#0a2a1f"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#121212"/>
+      <stop offset="100%" stop-color="#1a1a2e"/>
     </linearGradient>
-    <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00ff88"/>
-      <stop offset="50%" stop-color="#00ddcc"/>
-      <stop offset="100%" stop-color="#00aaff"/>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4096ff"/>
+      <stop offset="100%" stop-color="#1668dc"/>
     </linearGradient>
-    <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#00ff88" stop-opacity="0.5"/>
-      <stop offset="100%" stop-color="#00ff88" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
-      <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <clipPath id="circle">
-      <circle cx="256" cy="256" r="256"/>
-    </clipPath>
   </defs>
-  <!-- 圆形裁切容器 -->
-  <g clip-path="url(#circle)">
-    <!-- 背景填满整个圆 -->
-    <rect width="512" height="512" fill="url(#bgC)"/>
-    <!-- 左节点光晕 -->
-    <circle cx="120" cy="256" r="70" fill="url(#nodeGlow)"/>
-    <!-- 右节点光晕 -->
-    <circle cx="392" cy="256" r="70" fill="url(#nodeGlow)"/>
-    <!-- 左节点 -->
-    <circle cx="120" cy="256" r="44" fill="none" stroke="#00ff88" stroke-width="5" filter="url(#glow)"/>
-    <circle cx="120" cy="256" r="20" fill="#00ff88" opacity="0.9"/>
-    <!-- 右节点 -->
-    <circle cx="392" cy="256" r="44" fill="none" stroke="#00aaff" stroke-width="5" filter="url(#glow)"/>
-    <circle cx="392" cy="256" r="20" fill="#00aaff" opacity="0.9"/>
-    <!-- 数据流管道（上轨） -->
-    <path d="M 164 238 L 348 238" stroke="url(#flowGrad)" stroke-width="5" stroke-linecap="round" opacity="0.9" filter="url(#glow)"/>
-    <!-- 数据流管道（下轨） -->
-    <path d="M 164 274 L 348 274" stroke="url(#flowGrad)" stroke-width="5" stroke-linecap="round" opacity="0.9" filter="url(#glow)"/>
-    <!-- 上轨流向箭头（→） -->
-    <polygon points="330,228 355,238 330,248" fill="#00ddcc" filter="url(#glow)"/>
-    <!-- 下轨流向箭头（←） -->
-    <polygon points="182,264 157,274 182,284" fill="#00ddcc" filter="url(#glow)"/>
-    <!-- 流动粒子 -->
-    <circle cx="220" cy="238" r="4" fill="white" opacity="0.8"/>
-    <circle cx="270" cy="238" r="4" fill="white" opacity="0.6"/>
-    <circle cx="295" cy="274" r="4" fill="white" opacity="0.8"/>
-    <circle cx="245" cy="274" r="4" fill="white" opacity="0.6"/>
-  </g>
+
+  <!-- Full square background -->
+  <rect width="512" height="512" rx="0" ry="0" fill="url(#bg)"/>
+
+  <!-- Central logo: connected dots with FRP tunnel lines -->
+  <!-- Left dot (Windows) -->
+  <circle cx="160" cy="256" r="48" fill="url(#accent)" opacity="0.95"/>
+  <rect x="144" y="248" width="32" height="16" rx="4" fill="#fff" opacity="0.9"/>
+  <rect x="144" y="272" width="32" height="8" rx="4" fill="#fff" opacity="0.5"/>
+
+  <!-- Right dot (iOS) -->
+  <circle cx="352" cy="256" r="48" fill="url(#accent)" opacity="0.95"/>
+  <rect x="336" y="240" width="32" height="6" rx="3" fill="#fff" opacity="0.6"/>
+  <rect x="336" y="252" width="32" height="6" rx="3" fill="#fff" opacity="0.9"/>
+  <rect x="336" y="264" width="24" height="6" rx="3" fill="#fff" opacity="0.6"/>
+
+  <!-- Connecting tunnel line -->
+  <line x1="208" y1="256" x2="304" y2="256" stroke="url(#accent)" stroke-width="4" stroke-dasharray="8,6" opacity="0.7"/>
+
+  <!-- Data dots on the tunnel -->
+  <circle cx="240" cy="250" r="5" fill="#52c41a" opacity="0.8"/>
+  <circle cx="272" cy="262" r="4" fill="#52c41a" opacity="0.6"/>
+
+  <!-- Top header text -->
+  <text x="256" y="420" text-anchor="middle" font-family="Arial,sans-serif" font-size="36" font-weight="bold" fill="#fff" opacity="0.9">HANDOFF</text>
+  <text x="256" y="450" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" fill="#8c9aab" opacity="0.7">Device Relay</text>
 </svg>
