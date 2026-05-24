@@ -48,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useHandoffStore } from '../stores/handoff'
 
 const store = useHandoffStore()
@@ -73,8 +73,15 @@ watch(filter, (val) => {
   store.fetchTransferHistory(val || undefined)
 })
 
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
 onMounted(() => {
   store.fetchTransferHistory()
+  pollTimer = setInterval(() => store.fetchTransferHistory(filter.value || undefined), 3000)
+})
+
+onUnmounted(() => {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
 })
 
 async function handleRefresh(): Promise<void> {
