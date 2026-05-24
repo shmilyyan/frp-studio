@@ -342,8 +342,8 @@ class ConnectionManager: ObservableObject {
         }
 
         socket?.on(clientEvent: .error) { [weak self] data, ack in
-            self?.logger.error("socket.io 错误 (\(host):\(port)): \(data)")
-            self?.connectionError = "无法连接到 \(host):\(port)"
+            // Log but don't surface — socket.io will auto-reconnect
+            self?.logger.warn("socket.io 连接中 (\(host):\(port)): \(data)")
         }
 
         logger.info("正在连接 socket.io: \(host):\(port)")
