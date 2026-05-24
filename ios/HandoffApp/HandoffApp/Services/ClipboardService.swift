@@ -26,6 +26,10 @@ class ClipboardService: NSObject, ObservableObject {
         pollTimer = nil
     }
 
+    func checkNow() {
+        checkForChanges()
+    }
+
     private func checkForChanges() {
         let current = UIPasteboard.general.changeCount
         guard current != lastChangeCount else { return }

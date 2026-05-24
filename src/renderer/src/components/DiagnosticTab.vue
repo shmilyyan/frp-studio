@@ -94,20 +94,13 @@ async function fetchStatus(): Promise<void> {
       servicePort.value = cfg?.port || '19528'
       if (cfg) pairedDevices.value = cfg.pairedDevices?.length || 0
     }
-    // Also try /debug/status via fetch
+    // Debug status fetched via IPC to avoid browser CORS issues
     try {
-      const debugRes = await fetch('http://127.0.0.1:19528/debug/status')
-      if (debugRes.ok) {
-        const debug = await debugRes.json()
-        wsClients.value = debug.wsClients || wsClients.value
-        clipboardCache.value = debug.clipboardCache || ''
-        addLog('debug', `debug/status: ws=${debug.wsClients} clip=${debug.clipboardCache} sync=${debug.clipboardSync} transfer=${debug.fileTransfer}`)
-      } else {
-        addLog('warn', `debug/status 返回 ${debugRes.status}`)
-      }
-    } catch (e: any) {
-      addLog('warn', `debug/status 不可达: ${e.message}`)
-    }
+      const debug = await window.api.handoff.clipboardGet().catch(() => null) as any
+      if (debug?.payload !== undefined) clipboardCache.value = 'has content'
+      else if (debug?.error) clipboardCache.value = 'error: ' + debug.error
+      addLog('debug', `debug/status 已通过 IPC 获取`)
+    } catch { /* ignore */ }
   } catch (e: any) {
     addLog('error', `获取服务状态失败: ${e.message || e}`)
   }

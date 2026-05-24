@@ -14,12 +14,14 @@ class ConnectionManager: ObservableObject {
     var baseURL: String = "" {
         didSet {
             if !baseURL.isEmpty {
+                UserDefaults.standard.set(baseURL, forKey: "handoff_baseURL")
                 startPolling()
                 let parts = baseURL.split(separator: ":")
                 if parts.count == 2, let portNum = Int(parts[1]) {
                     connectSocketIO(host: String(parts[0]), port: portNum)
                 }
             } else {
+                UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
                 stopPolling()
                 socket?.disconnect()
                 socket = nil
@@ -58,7 +60,18 @@ class ConnectionManager: ObservableObject {
     init() {
         loadDevices()
         ensureIdentity()
+        // Restore previous connection
+        if let saved = UserDefaults.standard.string(forKey: "handoff_baseURL"), !saved.isEmpty {
+            baseURL = saved
+            logger.info("已恢复连接: \(saved)")
+        }
         logger.info("已加载 \(pairedDevices.count) 个已配对设备")
+
+        // Check clipboard when app comes to foreground
+        NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.logger.info("应用回到前台，检查剪贴板")
+            ClipboardService.shared.checkNow()
+        }
     }
 
     private func saveDevices() {
