@@ -15,15 +15,35 @@ import {
 } from '../handoff-service-manager'
 import {
   getHealth,
-  notifyConfigChanged,
-  generatePairingQR,
-  connectSSE,
-  startHealthCheck,
-  stopHealthCheck
+  connectClient,
+  stopClient
 } from '../handoff-ipc-client'
 
 let sseCleanup: (() => void) | null = null
 let lastServiceStatus: 'running' | 'stopped' = 'stopped'
+
+function httpPost(path: string, body?: unknown): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const postData = body ? JSON.stringify(body) : ''
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: 19528,
+      path,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+    }, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+      res.on('end', () => {
+        const data = Buffer.concat(chunks).toString('utf-8')
+        try { resolve(JSON.parse(data)) } catch { resolve(data) }
+      })
+    })
+    req.on('error', reject)
+    if (postData) req.write(postData)
+    req.end()
+  })
+}
 
 export function registerHandoffHandlers(): void {
   // ─── Service lifecycle ──────────────────────────────────────────────────
@@ -71,7 +91,7 @@ export function registerHandoffHandlers(): void {
   })
 
   ipcMain.handle('handoff:notify-config', async () => {
-    await notifyConfigChanged()
+    await httpPost('/config')
     return { success: true }
   })
 
@@ -79,7 +99,7 @@ export function registerHandoffHandlers(): void {
 
   ipcMain.handle('handoff:generate-pairing', async (_e, deviceName: string, devicePublicKey: string) => {
     try {
-      return await generatePairingQR(deviceName, devicePublicKey)
+      return await httpPost('/pair/generate', { deviceName, devicePublicKey })
     } catch (e) {
       return { success: false, error: String(e) }
     }
@@ -142,40 +162,16 @@ export function registerHandoffHandlers(): void {
 
     if (sseCleanup) sseCleanup()
 
-    sseCleanup = connectSSE((evt, data) => {
+    sseCleanup = connectClient((evt, data) => {
       if (rendererWin.isDestroyed()) return
-      rendererWin.webContents.send('handoff:event', { event: evt, data })
-    })
-
-    // Also connect to internal HTTP server SSE for transfer-recorded, device-paired
-    const internalReq = http.get('http://127.0.0.1:19529/internal/events', (res) => {
-      let buffer = ''
-      res.on('data', (chunk: Buffer) => {
-        buffer += chunk.toString('utf-8')
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-        let currentEvent = ''
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7).trim()
-          } else if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              if (!rendererWin.isDestroyed()) {
-                rendererWin.webContents.send('handoff:event', { event: currentEvent, data })
-              }
-            } catch { /* ignore */ }
-          }
+      if (evt === 'service-status-change') {
+        const status = (data as { status: 'running' | 'stopped' }).status
+        if (status !== lastServiceStatus) {
+          lastServiceStatus = status
+          rendererWin.webContents.send('handoff:service-status-change', { status })
         }
-      })
-    })
-    internalReq.on('error', () => { /* internal SSE not critical */ })
-
-    startHealthCheck((status) => {
-      if (rendererWin.isDestroyed()) return
-      if (status !== lastServiceStatus) {
-        lastServiceStatus = status
-        rendererWin.webContents.send('handoff:service-status-change', { status })
+      } else {
+        rendererWin.webContents.send('handoff:event', { event: evt, data })
       }
     })
   })
@@ -185,6 +181,6 @@ export function registerHandoffHandlers(): void {
       sseCleanup()
       sseCleanup = null
     }
-    stopHealthCheck()
+    stopClient()
   })
 }
