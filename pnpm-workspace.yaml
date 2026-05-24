@@ -1,0 +1,10 @@
+allowBuilds:
+  core-js: true
+  electron: true
+  esbuild: true
+  vue-demi: true
+onlyBuiltDependencies:
+  - core-js
+  - electron
+  - esbuild
+  - vue-demi

@@ -1,7 +1,7 @@
 import http from 'http'
 import fs from 'fs'
 import path from 'path'
-import { getConfig } from './config'
+import { getConfig, reloadConfig } from './config'
 
 type SSEClient = http.ServerResponse
 
@@ -62,6 +62,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
   // List paired devices
   if (req.method === 'GET' && url === '/devices') {
+    reloadConfig()
     const config = getConfig()
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(config.pairedDevices))
@@ -70,7 +71,6 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
   // Reload config (notifies service to hot-reload without restart)
   if (req.method === 'POST' && url === '/config') {
-    const { reloadConfig } = require('./config')
     reloadConfig()
     broadcastSSE('config-reloaded', {})
     res.writeHead(200, { 'Content-Type': 'application/json' })

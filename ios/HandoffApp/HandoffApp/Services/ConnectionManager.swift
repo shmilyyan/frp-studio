@@ -78,15 +78,21 @@ class ConnectionManager: ObservableObject {
             logger.info("目标设备 ID: \(deviceId)")
         }
 
-        // Add to paired devices
-        let device = PairedDevice(
-            deviceId: json["deviceId"] as? String ?? host,
-            name: "Windows-\(host)",
-            platform: "windows",
-            isConnected: true
-        )
-        pairedDevices.append(device)
-        logger.info("设备已添加到列表: \(device.name)")
+        let targetId = json["deviceId"] as? String ?? host
+
+        // Dedup: don't add the same device twice
+        if pairedDevices.contains(where: { $0.deviceId == targetId }) {
+            logger.info("设备已存在，跳过添加: \(targetId)")
+        } else {
+            let device = PairedDevice(
+                deviceId: targetId,
+                name: "Windows-\(host)",
+                platform: "windows",
+                isConnected: true
+            )
+            pairedDevices.append(device)
+            logger.info("设备已添加到列表: \(device.name)")
+        }
 
         connect(to: host, port: UInt16(port))
         return true
