@@ -199,19 +199,16 @@ class ConnectionManager: ObservableObject {
     }
 
     func sendClipboard(_ content: String) {
-        logger.warn("sendClipboard 被调用, baseURL=\(baseURL), socket=\(socket != nil ? "exists" : "nil"), status=\(String(describing: socket?.status))")
-        guard !baseURL.isEmpty else {
-            logger.warn("baseURL 为空，无法发送")
-            return
-        }
         lastLocalCopyTime = Date()
-        if socket?.status == .connected {
+        if !baseURL.isEmpty && socket?.status == .connected {
             socket?.emit("clipboard", ["payload": content])
             pendingClipboard = nil
             logger.warn("剪贴板已发送 (\(content.count) 字符)")
         } else {
+            // Cache regardless of why — no URL, no socket, or not connected
             pendingClipboard = content
-            logger.warn("剪贴板已缓存 (\(content.count) 字符), 等待 socket 连接")
+            let reason = baseURL.isEmpty ? "baseURL 为空" : "socket 未连接"
+            logger.warn("剪贴板已缓存 (\(content.count) 字符), \(reason)")
         }
     }
 
