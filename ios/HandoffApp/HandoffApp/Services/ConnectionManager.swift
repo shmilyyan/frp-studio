@@ -298,6 +298,7 @@ class ConnectionManager: ObservableObject {
         manager = SocketManager(socketURL: url, config: [
             .log(true),
             .reconnects(true),
+            .reconnectAttempts(-1),
             .reconnectWait(1),
             .reconnectWaitMax(15),
             .extraHeaders(["User-Agent": "Handoff-iOS"])
