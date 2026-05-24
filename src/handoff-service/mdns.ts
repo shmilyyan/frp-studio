@@ -65,9 +65,38 @@ export function startMDNSBroadcast(): void {
     })
   })
 
-  // Periodic announcement every 30 seconds
+  // Periodic announcement every 30 seconds (triggers responses + proactive query)
   setInterval(() => {
     mdns!.query({ questions: [{ name: '_handoff._tcp.local', type: 'PTR' }] })
+    // Also send a proactive announcement so iOS can discover without querying first
+    mdns!.respond({
+      answers: [{
+        name: '_handoff._tcp.local',
+        type: 'PTR',
+        class: 'IN',
+        ttl: 120,
+        data: `${serviceName}._handoff._tcp.local`
+      }, {
+        name: `${serviceName}._handoff._tcp.local`,
+        type: 'SRV',
+        class: 'IN',
+        ttl: 120,
+        data: {
+          port: config.server.port,
+          target: os.hostname() + '.local'
+        }
+      }, {
+        name: `${serviceName}._handoff._tcp.local`,
+        type: 'TXT',
+        class: 'IN',
+        ttl: 120,
+        data: Buffer.from(JSON.stringify({
+          deviceName: deviceName,
+          platform: 'windows',
+          version: getVersion()
+        }))
+      }]
+    })
   }, 30000)
 
   console.log(`[HandoffService] mDNS broadcasting as "${serviceName}"`)
