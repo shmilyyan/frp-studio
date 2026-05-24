@@ -130,8 +130,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     req.on('end', () => {
       try {
         const { deviceName, devicePublicKey } = JSON.parse(body)
-        const { generatePairRequest } = require('./pairing')
-        const result = generatePairRequest(deviceName, devicePublicKey)
+        const { generatePairRequest, getDeviceIdentity } = require('./pairing')
+        const effectivePublicKey = devicePublicKey || getDeviceIdentity().publicKey
+        const result = generatePairRequest(deviceName, effectivePublicKey)
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ success: true, qrData: result.qrData }))
       } catch (e) {

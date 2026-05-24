@@ -39,7 +39,7 @@ watch(() => props.open, async (val) => {
 async function generateQR(): Promise<void> {
   if (!qrCanvas.value) return
   try {
-    const result = await store.generatePairing('My iPhone', 'placeholder-key')
+    const result = await store.generatePairing('My iPhone', '')
     if (result.success && result.qrData) {
       drawQR(qrCanvas.value, result.qrData)
     } else {
