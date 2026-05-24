@@ -3,6 +3,24 @@ import fs from 'fs'
 import path from 'path'
 import { getConfig, reloadConfig } from './config'
 
+function getAppVersion(): string {
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    // Try multiple locations: project root, then cwd
+    const locations = [
+      path.join(process.cwd(), 'VERSION'),
+      path.join(process.cwd(), '..', '..', '..', 'VERSION')
+    ]
+    for (const loc of locations) {
+      if (fs.existsSync(loc)) {
+        return fs.readFileSync(loc, 'utf-8').trim()
+      }
+    }
+  } catch { /* fall through */ }
+  return '0.0.0'
+}
+
 type SSEClient = http.ServerResponse
 
 const sseClients: Set<SSEClient> = new Set()
@@ -48,7 +66,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       status: 'running',
       uptime: process.uptime(),
       connections: sseClients.size,
-      version: '0.1.0',
+      version: getAppVersion(),
       config: {
         deviceName: cfg.device.name,
         port: cfg.server.port,
