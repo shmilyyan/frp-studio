@@ -65,9 +65,9 @@ export function getConnectedClients(): number {
   return connectedClients.size
 }
 
-export function sendToClient(ws: WebSocket, type: string, data: unknown): void {
+export function sendToClient(ws: WebSocket, type: string, data: Record<string, unknown>): void {
   if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type, ...(data as object) }))
+    ws.send(JSON.stringify({ type, ...data }))
   }
 }
 

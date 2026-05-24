@@ -18,7 +18,7 @@ async function getClipboardText(): Promise<string> {
   return execPowerShell('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Clipboard -Format Text')
 }
 
-function hashContent(content: string): string {
+export function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex')
 }
 

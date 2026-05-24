@@ -54,13 +54,21 @@ async function main(): Promise<void> {
 
   // Receive clipboard content from iOS peers
   registerHandler('clipboard', (ws, msg) => {
-    const { writeClipboard } = require('./clipboard')
+    const { writeClipboard, getLatestClipboard, hashContent } = require('./clipboard')
     const { getClientId, broadcastToAll } = require('./ws-server')
+    const { getConfig } = require('./config')
     const payload = (msg as { payload: string }).payload
     if (payload && typeof payload === 'string' && payload.length > 0) {
+      // Enforce clipboardMaxSize limit
+      const maxSize = getConfig().features.clipboardMaxSize
+      if (payload.length > maxSize) return
+      // Dedup: skip if content already matches cache
+      const incomingHash = hashContent(payload)
+      if (incomingHash === getLatestClipboard().hash) return
       writeClipboard(payload)
       const sourceId = getClientId(ws)
-      broadcastToAll('clipboard', { payload, hash: '', sourceId }, sourceId)
+      const { hash } = getLatestClipboard()
+      broadcastToAll('clipboard', { payload, hash, sourceId }, sourceId)
       console.log(`[HandoffService] Clipboard received from iOS (${payload.length} chars)`)
     }
   })
