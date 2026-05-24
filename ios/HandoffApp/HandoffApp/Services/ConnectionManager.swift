@@ -63,7 +63,7 @@ class ConnectionManager: ObservableObject {
         // Restore previous connection
         if let saved = UserDefaults.standard.string(forKey: "handoff_baseURL"), !saved.isEmpty {
             baseURL = saved
-            logger.info("已恢复连接: \(saved)")
+            logger.warn("已恢复连接: \(saved)")
         }
         logger.info("已加载 \(pairedDevices.count) 个已配对设备")
     }
@@ -356,7 +356,7 @@ class ConnectionManager: ObservableObject {
             self?.logger.warn("socket.io 连接中 (\(host):\(port)): \(data)")
         }
 
-        logger.info("正在连接 socket.io: \(host):\(port)")
+        logger.warn("正在连接 socket.io: \(host):\(port)")
         socket?.connect()
     }
 }
