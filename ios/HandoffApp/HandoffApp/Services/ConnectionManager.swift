@@ -186,7 +186,6 @@ class ConnectionManager: ObservableObject {
             return
         }
         let url = URL(string: "http://\(baseURL)/clipboard/latest")!
-        logger.info("HTTP GET 剪贴板: \(url.absoluteString)")
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             if let error = error {
                 self?.logger.error("剪贴板请求失败: \(error.localizedDescription)")
@@ -194,14 +193,19 @@ class ConnectionManager: ObservableObject {
             }
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let payload = json["payload"] as? String, !payload.isEmpty else {
-                self?.logger.warn("剪贴板为空或解析失败")
-                return
-            }
+                  let payload = json["payload"] as? String, !payload.isEmpty else { return }
+            let hash = json["hash"] as? String ?? ""
             DispatchQueue.main.async {
-                self?.clipboardContent = payload
+                guard let self = self else { return }
+                // Dedup: skip if same hash already received
+                if hash == self.lastRemoteClipboardHash { return }
+                // Protect local copy: don't overwrite if user just copied locally
+                let now = Date()
+                if now.timeIntervalSince(self.lastLocalCopyTime) < 2.0 { return }
+                self.lastRemoteClipboardHash = hash
+                self.clipboardContent = payload
                 UIPasteboard.general.string = payload
-                self?.logger.info("剪贴板已更新 (\(payload.count) 字符)")
+                self.logger.info("剪贴板已同步 (\(payload.count) 字符)")
             }
         }.resume()
     }

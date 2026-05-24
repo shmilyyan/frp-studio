@@ -49,14 +49,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       try {
         const { deviceId, type, direction, detail, size, status } = JSON.parse(body || '{}')
         const devices = listPairedDevices()
-        const device = devices.find((d) => d.device_id === deviceId)
-        if (!device) {
-          res.writeHead(400)
-          res.end(JSON.stringify({ error: 'device not found' }))
-          return
-        }
+        const device = deviceId ? devices.find((d) => d.device_id === deviceId) : undefined
         const record = addTransferHistory({
-          device_id: device.id,
+          device_id: device?.id || 0,
           type: type || 'clipboard',
           direction: direction || 'send',
           detail: detail || '',

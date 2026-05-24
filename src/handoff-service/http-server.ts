@@ -115,9 +115,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   // Generate pairing QR data
   if (req.method === 'POST' && url === '/pair/generate') {
     const MAX_BODY = 1024 * 1024 // 1MB
-    let body = ''
+    const chunks: Buffer[] = []
     let bodyLength = 0
-    req.on('data', (chunk) => {
+    req.on('data', (chunk: Buffer) => {
       bodyLength += chunk.length
       if (bodyLength > MAX_BODY) {
         res.writeHead(413)
@@ -125,10 +125,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         req.destroy()
         return
       }
-      body += chunk
+      chunks.push(chunk)
     })
     req.on('end', () => {
       try {
+        const body = Buffer.concat(chunks).toString('utf-8')
         const { deviceName, devicePublicKey } = JSON.parse(body)
         const { generatePairRequest, getDeviceIdentity } = require('./pairing')
         const effectivePublicKey = devicePublicKey || getDeviceIdentity().publicKey
@@ -146,9 +147,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   // Confirm pairing
   if (req.method === 'POST' && url === '/pair/confirm') {
     const MAX_BODY = 1024 * 1024 // 1MB
-    let body = ''
+    const chunks: Buffer[] = []
     let bodyLength = 0
-    req.on('data', (chunk) => {
+    req.on('data', (chunk: Buffer) => {
       bodyLength += chunk.length
       if (bodyLength > MAX_BODY) {
         res.writeHead(413)
@@ -156,10 +157,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         req.destroy()
         return
       }
-      body += chunk
+      chunks.push(chunk)
     })
     req.on('end', () => {
       try {
+        const body = Buffer.concat(chunks).toString('utf-8')
         const { token, signedToken, deviceInfo } = JSON.parse(body)
         const { confirmPairing } = require('./pairing')
         const pending = confirmPairing(token, signedToken)
@@ -254,10 +256,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   }
 
   if (req.method === 'POST' && url === '/clipboard') {
-    let body = ''
-    req.on('data', (chunk) => { body += chunk })
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => { chunks.push(chunk) })
     req.on('end', () => {
       try {
+        const body = Buffer.concat(chunks).toString('utf-8')
         const { payload } = JSON.parse(body)
         if (payload && typeof payload === 'string') {
           const { writeClipboard } = require('./clipboard')
