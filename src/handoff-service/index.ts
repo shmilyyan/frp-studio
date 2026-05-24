@@ -38,6 +38,23 @@ async function main(): Promise<void> {
   // Register WebSocket message handlers
   const { handleFileOffer } = await import('./file-transfer')
 
+  // Device registration: iOS sends this on first WebSocket connection
+  registerHandler('register', (_ws, msg) => {
+    const { deviceName, deviceId, platform } = msg as { deviceName: string; deviceId: string; platform: string }
+    if (deviceId && deviceName) {
+      const postData = JSON.stringify({ deviceId, deviceName, publicKey: deviceId, platform: platform || 'ios' })
+      const req = require('http').request({
+        hostname: '127.0.0.1', port: 19529, path: '/internal/paired-device',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+      }, () => {})
+      req.on('error', (e: Error) => console.error('[HandoffService] Failed to save device:', e.message))
+      req.write(postData)
+      req.end()
+      console.log(`[HandoffService] Device registered: ${deviceName} (${deviceId})`)
+    }
+  })
+
   registerHandler('file:offer', (ws, msg) => {
     handleFileOffer(ws, msg as { filename: string; size: number; checksum: string })
   })

@@ -35,6 +35,7 @@ class ConnectionManager: ObservableObject {
     private var lastRemoteClipboardHash: String = ""
     private var lastLocalCopyTime: Date = Date()
     private var currentDeviceId: String = ""
+    private var needsRegistration = false
 
     // Task 10b: Device identity
     private var deviceId: String = ""
@@ -136,22 +137,15 @@ class ConnectionManager: ObservableObject {
         baseURL = "\(host):\(port)"
         logger.info("baseURL 已设置: \(baseURL)")
 
-        if let token = json["token"] as? String {
-            logger.info("配对 token: \(token)")
-        }
-        if let deviceId = json["deviceId"] as? String {
-            logger.info("目标设备 ID: \(deviceId)")
-        }
-
-        let targetId = json["deviceId"] as? String ?? host
-        currentDeviceId = targetId
+        let serverDeviceId = json["deviceId"] as? String ?? host
+        currentDeviceId = serverDeviceId
 
         // Dedup: don't add the same device twice
-        if pairedDevices.contains(where: { $0.deviceId == targetId }) {
-            logger.info("设备已存在，跳过添加: \(targetId)")
+        if pairedDevices.contains(where: { $0.deviceId == serverDeviceId }) {
+            logger.info("设备已存在，跳过添加: \(serverDeviceId)")
         } else {
             let device = PairedDevice(
-                deviceId: targetId,
+                deviceId: serverDeviceId,
                 name: "Windows-\(host)",
                 platform: "windows",
                 isConnected: true,
@@ -163,19 +157,9 @@ class ConnectionManager: ObservableObject {
             logger.info("设备已添加到列表: \(device.name)")
         }
 
-        // Task 10b: Send /pair/confirm
-        if let token = json["token"] as? String {
-            let confirmBody: [String: Any] = [
-                "token": token,
-                "signedToken": token,
-                "deviceInfo": [
-                    "deviceId": deviceId,
-                    "deviceName": UIDevice.current.name,
-                    "platform": "ios"
-                ]
-            ]
-            sendPairConfirm(host: host, port: port, body: confirmBody)
-        }
+        // Mark for registration on first WebSocket connection
+        needsRegistration = true
+        logger.info("将在 WebSocket 连接后向 \(host):\(port) 发送注册消息")
 
         return true
     }
@@ -304,6 +288,8 @@ class ConnectionManager: ObservableObject {
                 if !(self?.isWebSocketConnected ?? false) {
                     self?.isWebSocketConnected = true
                     self?.updateDeviceConnectionStatus(true)
+                    // Send registration on first successful connection
+                    self?.sendRegisterIfNeeded()
                 }
                 switch message {
                 case .string(let text):
@@ -416,21 +402,26 @@ class ConnectionManager: ObservableObject {
         logger.info("新设备身份已生成: \(deviceId)")
     }
 
-    private func sendPairConfirm(host: String, port: Int, body: [String: Any]) {
-        guard let url = URL(string: "http://\(host):\(port)/pair/confirm"),
-              let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
+    private func sendRegisterIfNeeded() {
+        guard needsRegistration, !deviceId.isEmpty else { return }
+        needsRegistration = false
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = jsonData
+        let msg: [String: Any] = [
+            "type": "register",
+            "deviceId": deviceId,
+            "deviceName": UIDevice.current.name,
+            "platform": "ios"
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: msg),
+              let jsonStr = String(data: jsonData, encoding: .utf8) else { return }
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        webSocketTask?.send(.string(jsonStr)) { [weak self] error in
             if let error = error {
-                self?.logger.error("pair/confirm 失败: \(error.localizedDescription)")
+                self?.logger.error("注册消息发送失败: \(error.localizedDescription)")
+                self?.needsRegistration = true  // retry on next connection
             } else {
-                self?.logger.info("pair/confirm 成功")
+                self?.logger.info("设备注册消息已发送: \(self?.deviceId ?? "")")
             }
-        }.resume()
+        }
     }
 }
