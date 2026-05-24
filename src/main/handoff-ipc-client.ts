@@ -76,32 +76,63 @@ export async function revokeDevice(deviceId: string): Promise<{ success: boolean
 // ─── SSE Event Stream ───────────────────────────────────────────────────────
 
 export function connectSSE(onEvent: (event: string, data: unknown) => void): () => void {
-  const req = http.get(`http://127.0.0.1:${config.port}/events`, (res) => {
-    let buffer = ''
-    res.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString()
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
+  let currentReq: http.ClientRequest | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let retryCount = 0
+  let stopped = false
+  let reconnecting = false
 
-      let currentEvent = ''
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim()
-        } else if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            onEvent(currentEvent, data)
-          } catch { /* ignore */ }
+  function createConnection(): void {
+    if (stopped) return
+
+    currentReq = http.get(`http://127.0.0.1:${config.port}/events`, (res) => {
+      retryCount = 0
+      reconnecting = false
+
+      let buffer = ''
+      res.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString()
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        let currentEvent = ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              onEvent(currentEvent, data)
+            } catch { /* ignore */ }
+          }
         }
-      }
+      })
+
+      res.on('error', () => { scheduleRetry() })
+      res.on('end', () => { scheduleRetry() })
     })
-  })
 
-  req.on('error', () => {
-    onEvent('error', { message: 'Cannot connect to HandoffService' })
-  })
+    currentReq.on('error', () => { scheduleRetry() })
+  }
 
-  return () => { req.destroy() }
+  function scheduleRetry(): void {
+    if (stopped || reconnecting) return
+    reconnecting = true
+    retryCount++
+    const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 15000)
+    retryTimer = setTimeout(() => {
+      retryTimer = null
+      createConnection()
+    }, delay)
+  }
+
+  createConnection()
+
+  return () => {
+    stopped = true
+    if (currentReq) { currentReq.destroy(); currentReq = null }
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
+  }
 }
 
 // ─── Health Check Loop ──────────────────────────────────────────────────────
