@@ -10,6 +10,16 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             List {
+                // App version
+                Section {
+                    HStack {
+                        Text("版本")
+                        Spacer()
+                        Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 // Connection status
                 Section("连接状态") {
                     HStack {
@@ -89,12 +99,6 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-            }
-            .onAppear {
-                ClipboardService.shared.onClipboardChanged = { text in
-                    connectionManager.sendClipboard(text)
-                }
-                ClipboardService.shared.startMonitoring()
             }
             .navigationTitle("Handoff")
             .toolbar {

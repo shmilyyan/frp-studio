@@ -5,6 +5,7 @@
         <a-card size="small" title="服务状态">
           <p>版本: {{ version }}</p>
           <p>运行时间: {{ uptime }}s</p>
+          <p>端口: {{ servicePort }}</p>
           <p>WS 客户端: {{ wsClients }}</p>
           <p>剪贴板缓存: {{ clipboardCache }}</p>
           <p>已配对设备: {{ pairedDevices }}</p>
@@ -55,6 +56,7 @@ interface LogEntry { time: string; level: string; msg: string }
 
 const version = ref('')
 const uptime = ref(0)
+const servicePort = ref('...')
 const wsClients = ref(0)
 const clipboardCache = ref('')
 const pairedDevices = ref(0)
@@ -83,23 +85,31 @@ function addLog(level: string, msg: string): void {
 async function fetchStatus(): Promise<void> {
   try {
     const res = await window.api.handoff.serviceStatus()
+    addLog('info', `服务状态: pid=${res.status} uptime=${res.uptime}ms health=${res.health ? 'ok' : 'null'}`)
     if (res.health) {
       version.value = res.health.version || '?'
       uptime.value = Math.floor(res.health.uptime || 0)
       wsClients.value = res.health.connections || 0
       const cfg = (res.health as any).config
+      servicePort.value = cfg?.port || '19528'
       if (cfg) pairedDevices.value = cfg.pairedDevices?.length || 0
     }
     // Also try /debug/status via fetch
-    const debugRes = await fetch('http://127.0.0.1:19528/debug/status')
-    if (debugRes.ok) {
-      const debug = await debugRes.json()
-      wsClients.value = debug.wsClients || wsClients.value
-      clipboardCache.value = debug.clipboardCache || ''
-      pairedDevices.value = debug.pairedDevices || pairedDevices.value
+    try {
+      const debugRes = await fetch('http://127.0.0.1:19528/debug/status')
+      if (debugRes.ok) {
+        const debug = await debugRes.json()
+        wsClients.value = debug.wsClients || wsClients.value
+        clipboardCache.value = debug.clipboardCache || ''
+        addLog('debug', `debug/status: ws=${debug.wsClients} clip=${debug.clipboardCache} sync=${debug.clipboardSync} transfer=${debug.fileTransfer}`)
+      } else {
+        addLog('warn', `debug/status 返回 ${debugRes.status}`)
+      }
+    } catch (e: any) {
+      addLog('warn', `debug/status 不可达: ${e.message}`)
     }
-  } catch {
-    addLog('error', '无法获取服务状态')
+  } catch (e: any) {
+    addLog('error', `获取服务状态失败: ${e.message || e}`)
   }
 }
 
@@ -146,14 +156,16 @@ function handleServiceStatusChange(data: { status: 'running' | 'stopped' }): voi
 onMounted(async () => {
   await fetchStatus()
   cleanupEvent = window.api.handoff.onEvent(({ event, data }) => {
-    const anyData = data as any
-    if (event === 'ws-connection') addLog('info', `WS 连接: ${anyData.clientId?.slice(0,8)} (共 ${anyData.connected})`)
-    else if (event === 'ws-disconnection') addLog('info', `WS 断开 (共 ${anyData.connected})`)
-    else if (event === 'device-paired') addLog('info', `设备配对: ${anyData.deviceName}`)
-    else if (event === 'device-revoked') addLog('info', `设备撤销: ${anyData.deviceId}`)
+    const d = data as any
+    if (event === 'ws-connection') addLog('info', `WS 连接: ${d.clientId?.slice(0,8)} (在线: ${d.connected})`)
+    else if (event === 'ws-disconnection') addLog('info', `WS 断开: ${d.clientId?.slice(0,8)} (在线: ${d.connected})`)
+    else if (event === 'device-paired') { addLog('info', `设备配对: ${d.deviceName} (${d.deviceId})`); fetchStatus() }
+    else if (event === 'device-revoked') addLog('info', `设备撤销: ${d.deviceId}`)
     else if (event === 'config-reloaded') addLog('info', '配置已重载')
     else if (event === 'restarting') addLog('warn', '服务正在重启')
-    else addLog('debug', `${event}: ${JSON.stringify(anyData)}`)
+    else if (event === 'transfer-recorded') addLog('debug', `传输记录: ${d.type} ${d.direction} ${d.detail?.slice(0,50)}`)
+    else if (event === 'connected') addLog('debug', '内部 SSE 已连接')
+    else addLog('debug', `${event}: ${JSON.stringify(d).slice(0, 200)}`)
   })
   cleanupStatus = window.api.handoff.onServiceStatusChange(handleServiceStatusChange)
 })

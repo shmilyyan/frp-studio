@@ -24,10 +24,15 @@ class DebugLogger: ObservableObject {
 
     func log(_ message: String, level: String = "info") {
         let entry = LogEntry(timestamp: Date(), level: level, message: message)
-        DispatchQueue.main.async { [weak self] in
-            self?.entries.append(entry)
+        // Always store errors/warnings; only store info/debug when debug mode is on
+        if isDebugMode || level == "error" || level == "warn" {
+            DispatchQueue.main.async { [weak self] in
+                self?.entries.append(entry)
+            }
         }
         if isDebugMode {
+            print("[Handoff:\(level)] \(message)")
+        } else if level == "error" || level == "warn" {
             print("[Handoff:\(level)] \(message)")
         }
     }

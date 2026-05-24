@@ -136,6 +136,22 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         const result = generatePairRequest(deviceName, effectivePublicKey)
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ success: true, qrData: result.qrData }))
+
+        // Auto-save pending device to main process SQLite immediately
+        const postData = JSON.stringify({
+          deviceId: result.qrData ? JSON.parse(result.qrData).deviceId || effectivePublicKey.slice(0, 16) : effectivePublicKey.slice(0, 16),
+          deviceName: deviceName,
+          publicKey: effectivePublicKey,
+          platform: 'ios'
+        })
+        const saveReq = http.request({
+          hostname: '127.0.0.1', port: 19529, path: '/internal/paired-device',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+        }, () => {})
+        saveReq.on('error', (e: Error) => console.error('[HandoffService] Failed to auto-save device:', e.message))
+        saveReq.write(postData)
+        saveReq.end()
       } catch (e) {
         res.writeHead(400)
         res.end(JSON.stringify({ error: String(e) }))

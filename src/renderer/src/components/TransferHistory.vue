@@ -6,7 +6,10 @@
         <a-radio-button value="clipboard">剪贴板</a-radio-button>
         <a-radio-button value="file">文件</a-radio-button>
       </a-radio-group>
-      <a-button size="small" @click="handleClear">清空记录</a-button>
+      <a-space>
+        <a-button size="small" @click="handleRefresh">刷新</a-button>
+        <a-button size="small" @click="handleClear">清空记录</a-button>
+      </a-space>
     </div>
 
     <a-table
@@ -73,6 +76,10 @@ watch(filter, (val) => {
 onMounted(() => {
   store.fetchTransferHistory()
 })
+
+async function handleRefresh(): Promise<void> {
+  await store.fetchTransferHistory(filter.value || undefined)
+}
 
 async function handleClear(): Promise<void> {
   await store.clearHistory()

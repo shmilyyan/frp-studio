@@ -2,7 +2,10 @@
   <div>
     <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
       <span style="color: #8c9aab;">共 {{ store.devices.length }} 台已配对设备</span>
-      <a-button type="primary" @click="showQRModal = true" :disabled="!store.isRunning">生成配对码</a-button>
+      <a-space>
+        <a-button size="small" @click="store.fetchDevices()">刷新</a-button>
+        <a-button type="primary" @click="showQRModal = true" :disabled="!store.isRunning">生成配对码</a-button>
+      </a-space>
     </div>
 
     <a-list
