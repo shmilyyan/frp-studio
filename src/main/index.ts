@@ -10,7 +10,7 @@ import { handleWindowClose, refreshTrayMenu } from './tray'
 import { frpcManager } from './frpc'
 import { checkFrpExists, autoDownloadLatest, getLatestVersion, getInstalledFrpVersion } from './downloader'
 import { registerHandoffHandlers } from './ipc/handoff'
-import { startHandoffService } from './handoff-service-manager'
+import { startHandoffService, stopHandoffService } from './handoff-service-manager'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -188,6 +188,12 @@ app.whenReady().then(async () => {
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+
+  // Ensure all child processes are cleaned up on exit
+  app.on('will-quit', () => {
+    frpcManager.stopAll()
+    stopHandoffService()
   })
 })
 
