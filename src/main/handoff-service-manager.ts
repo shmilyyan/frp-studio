@@ -44,8 +44,25 @@ function isServiceRunning(): boolean {
   }
 }
 
+function killPortProcess(port: number): void {
+  if (process.platform !== 'win32') return
+  try {
+    const output = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf-8', windowsHide: true })
+    const lines = output.trim().split('\n')
+    for (const line of lines) {
+      const match = line.match(/:(\d+)\s+.*LISTENING\s+(\d+)/)
+      if (match && parseInt(match[1]) === port) {
+        const pid = match[2]
+        console.log(`[FRP Studio] Killing process on port ${port} (PID ${pid})`)
+        execSync(`taskkill //PID ${pid} //F //T`, { windowsHide: true, stdio: 'ignore' })
+      }
+    }
+  } catch { /* port not in use or command failed */ }
+}
+
 export function startHandoffService(): boolean {
-  // Always kill any previous instance first (prevents port-conflict orphan)
+  // Kill any process holding port 19528, then clean up PID file
+  killPortProcess(19528)
   stopHandoffService()
 
   const jsPath = getServiceJsPath()
