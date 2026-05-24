@@ -119,7 +119,6 @@ class ConnectionManager: ObservableObject {
             logger.info("设备已添加到列表: \(device.name)")
         }
 
-        connect(to: host, port: UInt16(port))
         return true
     }
 
