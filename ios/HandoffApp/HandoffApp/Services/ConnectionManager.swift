@@ -199,7 +199,11 @@ class ConnectionManager: ObservableObject {
     }
 
     func sendClipboard(_ content: String) {
-        guard !baseURL.isEmpty else { return }
+        logger.warn("sendClipboard 被调用, baseURL=\(baseURL), socket=\(socket != nil ? "exists" : "nil"), status=\(String(describing: socket?.status))")
+        guard !baseURL.isEmpty else {
+            logger.warn("baseURL 为空，无法发送")
+            return
+        }
         lastLocalCopyTime = Date()
         if socket?.status == .connected {
             socket?.emit("clipboard", ["payload": content])
