@@ -165,6 +165,7 @@ onMounted(async () => {
     else if (event === 'restarting') addLog('warn', '服务正在重启')
     else if (event === 'transfer-recorded') addLog('debug', `传输记录: ${d.type} ${d.direction} ${d.detail?.slice(0,50)}`)
     else if (event === 'connected') addLog('debug', '内部 SSE 已连接')
+    else if (event === 'service-error') addLog('error', `[HandoffService] ${d.message}`)
     else addLog('debug', `${event}: ${JSON.stringify(d).slice(0, 200)}`)
   })
   cleanupStatus = window.api.handoff.onServiceStatusChange(handleServiceStatusChange)

@@ -1,7 +1,15 @@
-import { app } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { spawn, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+
+function broadcastError(msg: string): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('handoff:event', { event: 'service-error', data: { message: msg, time: Date.now() } })
+    }
+  }
+}
 
 let serviceProcess: ChildProcess | null = null
 let restartCount = 0
@@ -88,11 +96,15 @@ export function startHandoffService(): boolean {
 
   serviceProcess.stderr?.on('data', (data: Buffer) => {
     const line = data.toString().trim()
-    if (line) console.error(`[HandoffService ERR] ${line}`)
+    if (line) {
+      console.error(`[HandoffService ERR] ${line}`)
+      broadcastError(line)
+    }
   })
 
   serviceProcess.on('exit', (code, signal) => {
     console.log(`[FRP Studio] HandoffService exited (code=${code}, signal=${signal})`)
+    broadcastError(`HandoffService exited (code=${code}, signal=${signal})`)
     serviceProcess = null
     restartCount++
 
@@ -100,7 +112,9 @@ export function startHandoffService(): boolean {
       console.log(`[FRP Studio] Restarting HandoffService in ${RESTART_DELAY}ms (attempt ${restartCount}/${MAX_RESTART})`)
       setTimeout(() => startHandoffService(), RESTART_DELAY)
     } else {
-      console.error(`[FRP Studio] HandoffService failed after ${MAX_RESTART} restarts`)
+      const msg = `HandoffService failed after ${MAX_RESTART} restarts — check port 19528`
+      console.error(`[FRP Studio] ${msg}`)
+      broadcastError(msg)
     }
   })
 
