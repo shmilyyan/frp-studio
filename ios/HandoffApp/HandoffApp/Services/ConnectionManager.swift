@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import Network
 import Security
+import SocketIO
 
 class ConnectionManager: ObservableObject {
     @Published var pairedDevices: [PairedDevice] = []
@@ -14,24 +15,23 @@ class ConnectionManager: ObservableObject {
         didSet {
             if !baseURL.isEmpty {
                 startPolling()
-                startHeartbeat()
-                connectWebSocket()
+                let parts = baseURL.split(separator: ":")
+                if parts.count == 2, let portNum = Int(parts[1]) {
+                    connectSocketIO(host: String(parts[0]), port: portNum)
+                }
             } else {
                 stopPolling()
-                stopHeartbeat()
+                socket?.disconnect()
+                socket = nil
             }
         }
     }
     private var webSocket: URLSessionWebSocketTask?
-    private var webSocketTask: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
     private var pollTimer: Timer?
+    private var manager: SocketManager?
+    private var socket: SocketIOClient?
 
-    // Task 9: WebSocket reconnect + heartbeat
-    private var reconnectAttempts = 0
-    private let maxReconnectDelay: TimeInterval = 30
-    private var heartbeatTimer: Timer?
-    private var isWebSocketConnected = false
     private var lastRemoteClipboardHash: String = ""
     private var lastLocalCopyTime: Date = Date()
     private var currentDeviceId: String = ""
@@ -156,9 +156,6 @@ class ConnectionManager: ObservableObject {
             logger.info("设备已添加到列表: \(device.name)")
         }
 
-        // Register immediately via HTTP
-        sendRegister(host: host, port: port)
-
         return true
     }
 
@@ -193,25 +190,10 @@ class ConnectionManager: ObservableObject {
     }
 
     func sendClipboard(_ content: String) {
-        guard !baseURL.isEmpty else {
-            logger.warn("sendClipboard: baseURL not set")
-            return
-        }
+        guard !baseURL.isEmpty else { return }
         lastLocalCopyTime = Date()
-        let url = URL(string: "http://\(baseURL)/clipboard")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body = ["payload": content]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        logger.info("HTTP POST 剪贴板: \(content.count) 字符")
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            if let error = error {
-                self?.logger.error("剪贴板发送失败: \(error.localizedDescription)")
-            } else {
-                self?.logger.info("剪贴板已发送")
-            }
-        }.resume()
+        socket?.emit("clipboard", ["payload": content])
+        logger.info("剪贴板已发送 (\(content.count) 字符)")
     }
 
     private func receiveMessage() {
@@ -267,115 +249,6 @@ class ConnectionManager: ObservableObject {
         logger.debug("收到二进制数据块: \(data.count) bytes")
     }
 
-    // MARK: - Task 9: WebSocket reconnect + heartbeat
-
-    private func connectWebSocket() {
-        guard !baseURL.isEmpty else { return }
-        guard let wsURL = URL(string: "ws://\(baseURL)") else { return }
-        logger.info("WebSocket 连接: \(wsURL.absoluteString)")
-        webSocketTask = session.webSocketTask(with: wsURL)
-        webSocketTask?.resume()
-        receiveWSMessage()
-    }
-
-    private func receiveWSMessage() {
-        webSocketTask?.receive { [weak self] result in
-            switch result {
-            case .success(let message):
-                self?.reconnectAttempts = 0
-                if !(self?.isWebSocketConnected ?? false) {
-                    self?.isWebSocketConnected = true
-                    self?.updateDeviceConnectionStatus(true)
-                }
-                switch message {
-                case .string(let text):
-                    self?.handleWSMessage(text)
-                case .data(let data):
-                    self?.logger.debug("WebSocket 收到二进制: \(data.count) bytes")
-                @unknown default: break
-                }
-                self?.receiveWSMessage()
-            case .failure(let error):
-                self?.logger.error("WebSocket 断开: \(error.localizedDescription)")
-                self?.isWebSocketConnected = false
-                self?.updateDeviceConnectionStatus(false)
-                self?.scheduleReconnect()
-            }
-        }
-    }
-
-    private func scheduleReconnect() {
-        let delay = min(5.0 * pow(2.0, Double(reconnectAttempts)), maxReconnectDelay)
-        reconnectAttempts += 1
-        logger.info("WebSocket 重连: \(Int(delay))s 后 (第 \(reconnectAttempts) 次)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.connectWebSocket()
-        }
-    }
-
-    private func handleWSMessage(_ text: String) {
-        guard let data = text.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String else { return }
-
-        DispatchQueue.main.async {
-            switch type {
-            case "clipboard":
-                let payload = json["payload"] as? String ?? ""
-                let hash = json["hash"] as? String ?? ""
-                if !payload.isEmpty && hash != self.lastRemoteClipboardHash {
-                    let now = Date()
-                    if now.timeIntervalSince(self.lastLocalCopyTime) > 2.0 {
-                        self.lastRemoteClipboardHash = hash
-                        UIPasteboard.general.string = payload
-                        self.logger.info("远程剪贴板已同步 (\(payload.count) 字符)")
-                    }
-                }
-            case "file:offer":
-                if let filename = json["filename"] as? String,
-                   let size = json["size"] as? Int {
-                    self.logger.info("收到文件传输请求: \(filename) (\(size) bytes)")
-                }
-            default:
-                self.logger.debug("未处理的消息类型: \(type)")
-            }
-        }
-    }
-
-    private func startHeartbeat() {
-        stopHeartbeat()
-        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            self?.checkHealth()
-        }
-    }
-
-    private func stopHeartbeat() {
-        heartbeatTimer?.invalidate()
-        heartbeatTimer = nil
-    }
-
-    private func checkHealth() {
-        guard !baseURL.isEmpty else { return }
-        guard let url = URL(string: "http://\(baseURL)/health") else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] _, response, error in
-            DispatchQueue.main.async {
-                if error == nil, let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
-                    self?.updateDeviceConnectionStatus(true)
-                } else {
-                    self?.updateDeviceConnectionStatus(false)
-                }
-            }
-        }.resume()
-    }
-
-    private func updateDeviceConnectionStatus(_ connected: Bool) {
-        if let idx = pairedDevices.firstIndex(where: { $0.deviceId == currentDeviceId }) {
-            pairedDevices[idx].isConnected = connected
-            pairedDevices[idx].lastSeen = connected ? Date() : pairedDevices[idx].lastSeen
-            saveDevices()
-        }
-    }
-
     // MARK: - Task 10b: Device identity + /pair/confirm
 
     private func ensureIdentity() {
@@ -398,32 +271,66 @@ class ConnectionManager: ObservableObject {
         logger.info("新设备身份已生成: \(deviceId)")
     }
 
-    private func sendRegister(host: String, port: Int) {
-        guard !deviceId.isEmpty else { return }
-        let body: [String: Any] = [
-            "deviceId": deviceId,
-            "deviceName": UIDevice.current.name,
-            "platform": "ios"
-        ]
-        guard let url = URL(string: "http://\(host):\(port)/register"),
-              let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
+    func connectSocketIO(host: String, port: Int) {
+        guard let url = URL(string: "http://\(host):\(port)") else { return }
+        manager = SocketManager(socketURL: url, config: [
+            .log(false),
+            .reconnects(true),
+            .reconnectWait(1),
+            .reconnectWaitMax(15),
+            .extraHeaders(["User-Agent": "Handoff-iOS"])
+        ])
+        socket = manager?.defaultSocket
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = jsonData
-        request.timeoutInterval = 5
+        socket?.on(clientEvent: .connect) { [weak self] data, ack in
+            self?.logger.info("socket.io 已连接")
+            // Auth with device identity
+            self?.socket?.emit("auth", [
+                "deviceId": self?.deviceId ?? "",
+                "deviceName": UIDevice.current.name,
+                "platform": "ios"
+            ])
+        }
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            if let error = error {
-                self?.logger.error("设备注册失败: \(error.localizedDescription)")
-                // Retry after 3 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    self?.sendRegister(host: host, port: port)
-                }
-            } else {
-                self?.logger.info("设备注册成功: \(self?.deviceId ?? "")")
+        socket?.on("auth:ok") { [weak self] data, ack in
+            self?.logger.info("设备已注册: \(self?.deviceId ?? "")")
+            // Update paired device connection status
+            if let idx = self?.pairedDevices.firstIndex(where: { $0.deviceId == self?.currentDeviceId }) {
+                self?.pairedDevices[idx].isConnected = true
+                self?.pairedDevices[idx].lastSeen = Date()
+                self?.saveDevices()
             }
-        }.resume()
+        }
+
+        socket?.on("clipboard") { [weak self] data, ack in
+            guard let self = self,
+                  let items = data as? [[String: Any]],
+                  let msg = items.first else { return }
+            let payload = msg["payload"] as? String ?? ""
+            let hash = msg["hash"] as? String ?? ""
+            if !payload.isEmpty && hash != self.lastRemoteClipboardHash {
+                let now = Date()
+                if now.timeIntervalSince(self.lastLocalCopyTime) > 2.0 {
+                    self.lastRemoteClipboardHash = hash
+                    UIPasteboard.general.string = payload
+                    self.clipboardContent = payload
+                    self.logger.info("剪贴板已同步 (\(payload.count) 字符)")
+                }
+            }
+        }
+
+        socket?.on(clientEvent: .disconnect) { [weak self] data, ack in
+            self?.logger.info("socket.io 断开")
+            if let idx = self?.pairedDevices.firstIndex(where: { $0.deviceId == self?.currentDeviceId }) {
+                self?.pairedDevices[idx].isConnected = false
+                self?.saveDevices()
+            }
+        }
+
+        socket?.on(clientEvent: .error) { [weak self] data, ack in
+            self?.logger.error("socket.io 错误: \(data)")
+        }
+
+        socket?.connect()
     }
 }
