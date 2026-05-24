@@ -15,7 +15,9 @@ struct ContentView: View {
                     HStack {
                         Text("版本")
                         Spacer()
-                        Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
+                        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+                        let commit = Bundle.main.infoDictionary?["GITCommitHash"] as? String ?? ""
+                        Text(commit.isEmpty ? "v\(version)" : "v\(version) (\(commit))")
                             .foregroundColor(.secondary)
                     }
                     if !connectionManager.deviceId.isEmpty {

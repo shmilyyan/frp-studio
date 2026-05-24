@@ -123,8 +123,10 @@ jobs:
           MARKETING_VERSION="$(cat VERSION)"
           PATCH=$(git rev-list --count HEAD)
           FULL_VERSION="${MARKETING_VERSION}.${PATCH}"
+          SHORT_HASH=$(git rev-parse --short=7 HEAD)
           echo "marketing_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
           echo "build_number=${PATCH}" >> $GITHUB_OUTPUT
+          echo "short_hash=${SHORT_HASH}" >> $GITHUB_OUTPUT
 
       - name: Install tools
         run: brew install xcodegen librsvg
@@ -153,7 +155,8 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             CURRENT_PROJECT_VERSION=${{ steps.ios-version.outputs.build_number }} \
-            MARKETING_VERSION=${{ steps.ios-version.outputs.marketing_version }}
+            MARKETING_VERSION=${{ steps.ios-version.outputs.marketing_version }} \
+            GIT_COMMIT_HASH=${{ steps.ios-version.outputs.short_hash }}
 
       - name: Package IPA
         run: |

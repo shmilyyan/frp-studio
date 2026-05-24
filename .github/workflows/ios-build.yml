@@ -54,7 +54,8 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             CURRENT_PROJECT_VERSION=${{ steps.version.outputs.build_number }} \
-            MARKETING_VERSION=${{ steps.version.outputs.marketing_version }}
+            MARKETING_VERSION=${{ steps.version.outputs.marketing_version }} \
+            GIT_COMMIT_HASH=${{ steps.version.outputs.short_hash }}
 
       - name: Package IPA
         run: |
