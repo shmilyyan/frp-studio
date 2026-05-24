@@ -28,7 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useHandoffStore } from '../stores/handoff'
 import DeviceList from '../components/DeviceList.vue'
 import TransferHistory from '../components/TransferHistory.vue'
@@ -37,6 +37,12 @@ import DiagnosticTab from '../components/DiagnosticTab.vue'
 
 const store = useHandoffStore()
 const activeTab = ref('devices')
+
+// Auto-refresh when switching tabs
+watch(activeTab, (tab) => {
+  if (tab === 'devices') store.fetchDevices()
+  else if (tab === 'history') store.fetchTransferHistory()
+})
 
 onMounted(async () => {
   await store.fetchServiceStatus()
