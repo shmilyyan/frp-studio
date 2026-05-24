@@ -24,9 +24,6 @@ struct HandoffApp: App {
         DiscoveryService.shared.startBrowsing()
         // Read pasteboard to trigger paste access if needed (iOS 16+)
         _ = UIPasteboard.general.string
-        // Trigger local network permission by making a dummy connection attempt
-        let dummyURL = URL(string: "http://127.0.0.1:19528/health")!
-        URLSession.shared.dataTask(with: dummyURL) { _, _, _ in }.resume()
     }
 
     var body: some Scene {
