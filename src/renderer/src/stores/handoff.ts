@@ -20,8 +20,6 @@ export interface TransferRecord {
 }
 
 export const useHandoffStore = defineStore('handoff', () => {
-  let restartTimeout: ReturnType<typeof setTimeout> | null = null
-
   const serviceStatus = ref<'running' | 'stopped'>('stopped')
   const serviceUptime = ref(0)
   const serviceConnections = ref(0)
@@ -52,10 +50,7 @@ export const useHandoffStore = defineStore('handoff', () => {
 
   async function restartService(): Promise<void> {
     await window.api.handoff.restartService()
-    if (restartTimeout) clearTimeout(restartTimeout)
-    restartTimeout = setTimeout(() => {
-      serviceStatus.value = 'stopped'
-    }, 10000)
+    // Status is tracked by socket.io connect/disconnect events — no timeout needed
   }
 
   async function fetchDevices(): Promise<void> {
