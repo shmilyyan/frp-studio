@@ -7,6 +7,8 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
 
     private var browser: NetServiceBrowser?
     private var resolvingServices: Set<NetService> = []
+    private var retryCount = 0
+    private let maxRetries = 5
     private let logger = DebugLogger.shared
 
     override private init() {
@@ -15,6 +17,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
 
     func startBrowsing() {
         logger.info("Bonjour 浏览器启动: _handoff._tcp.")
+        retryCount = 0
         browser = NetServiceBrowser()
         browser?.delegate = self
         browser?.searchForServices(ofType: "_handoff._tcp.", inDomain: "local.")
@@ -37,7 +40,13 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     }
 
     func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
-        logger.error("Bonjour 搜索失败: \(errorDict)")
+        logger.warn("Bonjour 搜索失败 (重试 \(retryCount + 1)/\(maxRetries)): \(errorDict)")
+        retryCount += 1
+        if retryCount <= maxRetries {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                self?.browser?.searchForServices(ofType: "_handoff._tcp.", inDomain: "local.")
+            }
+        }
     }
 
     func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
