@@ -291,7 +291,6 @@ class ConnectionManager: ObservableObject {
             .reconnects(true),
             .reconnectWait(1),
             .reconnectWaitMax(15),
-            .connectTimeout(15000),
             .extraHeaders(["User-Agent": "Handoff-iOS"])
         ])
         socket = manager?.defaultSocket
