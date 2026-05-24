@@ -12,6 +12,25 @@ class ConnectionManager: ObservableObject {
     private var webSocket: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
     private let logger = DebugLogger.shared
+    private let storageKey = "handoff_paired_devices"
+
+    init() {
+        loadDevices()
+        logger.info("已加载 \(pairedDevices.count) 个已配对设备")
+    }
+
+    private func saveDevices() {
+        if let data = try? JSONEncoder().encode(pairedDevices) {
+            UserDefaults.standard.set(data, forKey: storageKey)
+            logger.debug("设备列表已保存: \(pairedDevices.count) 个设备")
+        }
+    }
+
+    private func loadDevices() {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let saved = try? JSONDecoder().decode([PairedDevice].self, from: data) else { return }
+        pairedDevices = saved
+    }
 
     func startDiscovery() {
         isScanning = true
@@ -91,6 +110,7 @@ class ConnectionManager: ObservableObject {
                 isConnected: true
             )
             pairedDevices.append(device)
+            saveDevices()
             logger.info("设备已添加到列表: \(device.name)")
         }
 
