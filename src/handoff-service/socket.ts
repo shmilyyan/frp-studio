@@ -120,3 +120,17 @@ export function notifyAdmin(event: string, data: unknown): void {
   if (!io) return
   io.to('admin').emit(event, data)
 }
+
+// For debug/status endpoint: return list of connected clients
+export function getConnectedClients(): Array<{ id: string; role: string; deviceId?: string }> {
+  if (!io) return []
+  const clients: Array<{ id: string; role: string; deviceId?: string }> = []
+  io.sockets.sockets.forEach((socket) => {
+    clients.push({
+      id: socket.id,
+      role: socket.data.role || 'unknown',
+      deviceId: socket.data.deviceId
+    })
+  })
+  return clients
+}

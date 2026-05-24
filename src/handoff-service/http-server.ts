@@ -276,7 +276,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   if (req.method === 'GET' && url === '/debug/status') {
     const cfg = getConfig()
     const { getLatestClipboard } = require('./clipboard')
-    const { getConnectedClients } = require('./ws-server')
+    const { getConnectedClients } = require('./socket')
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({
       uptime: process.uptime(),
