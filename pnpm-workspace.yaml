@@ -1,8 +1,6 @@
-allowBuilds:
-  core-js: true
-  electron: true
-  esbuild: true
-  vue-demi: true
+packages:
+  - "."
+
 onlyBuiltDependencies:
   - core-js
   - electron
