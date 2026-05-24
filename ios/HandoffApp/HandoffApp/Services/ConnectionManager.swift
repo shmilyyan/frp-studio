@@ -35,7 +35,6 @@ class ConnectionManager: ObservableObject {
     private var lastRemoteClipboardHash: String = ""
     private var lastLocalCopyTime: Date = Date()
     private var currentDeviceId: String = ""
-    private var needsRegistration = false
 
     // Task 10b: Device identity
     private var deviceId: String = ""
@@ -157,9 +156,8 @@ class ConnectionManager: ObservableObject {
             logger.info("设备已添加到列表: \(device.name)")
         }
 
-        // Mark for registration on first WebSocket connection
-        needsRegistration = true
-        logger.info("将在 WebSocket 连接后向 \(host):\(port) 发送注册消息")
+        // Register immediately via HTTP
+        sendRegister(host: host, port: port)
 
         return true
     }
@@ -288,8 +286,6 @@ class ConnectionManager: ObservableObject {
                 if !(self?.isWebSocketConnected ?? false) {
                     self?.isWebSocketConnected = true
                     self?.updateDeviceConnectionStatus(true)
-                    // Send registration on first successful connection
-                    self?.sendRegisterIfNeeded()
                 }
                 switch message {
                 case .string(let text):
@@ -402,26 +398,32 @@ class ConnectionManager: ObservableObject {
         logger.info("新设备身份已生成: \(deviceId)")
     }
 
-    private func sendRegisterIfNeeded() {
-        guard needsRegistration, !deviceId.isEmpty else { return }
-        needsRegistration = false
-
-        let msg: [String: Any] = [
-            "type": "register",
+    private func sendRegister(host: String, port: Int) {
+        guard !deviceId.isEmpty else { return }
+        let body: [String: Any] = [
             "deviceId": deviceId,
             "deviceName": UIDevice.current.name,
             "platform": "ios"
         ]
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: msg),
-              let jsonStr = String(data: jsonData, encoding: .utf8) else { return }
+        guard let url = URL(string: "http://\(host):\(port)/register"),
+              let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
 
-        webSocketTask?.send(.string(jsonStr)) { [weak self] error in
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+        request.timeoutInterval = 5
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
-                self?.logger.error("注册消息发送失败: \(error.localizedDescription)")
-                self?.needsRegistration = true  // retry on next connection
+                self?.logger.error("设备注册失败: \(error.localizedDescription)")
+                // Retry after 3 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    self?.sendRegister(host: host, port: port)
+                }
             } else {
-                self?.logger.info("设备注册消息已发送: \(self?.deviceId ?? "")")
+                self?.logger.info("设备注册成功: \(self?.deviceId ?? "")")
             }
-        }
+        }.resume()
     }
 }

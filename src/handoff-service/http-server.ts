@@ -112,6 +112,48 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     return
   }
 
+  // Device registration — iOS calls this after scanning QR
+  if (req.method === 'POST' && url === '/register') {
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => { chunks.push(c) })
+    req.on('end', () => {
+      try {
+        const { deviceId, deviceName, platform } = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
+        if (!deviceId || !deviceName) {
+          res.writeHead(400)
+          res.end(JSON.stringify({ error: 'deviceId and deviceName required' }))
+          return
+        }
+        const postData = JSON.stringify({ deviceId, deviceName, publicKey: deviceId, platform: platform || 'ios' })
+        const saveReq = http.request({
+          hostname: '127.0.0.1', port: 19529, path: '/internal/paired-device',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+        }, (cbRes) => {
+          let cbData = ''
+          cbRes.on('data', (c: Buffer) => { cbData += c.toString('utf-8') })
+          cbRes.on('end', () => {
+            res.writeHead(200)
+            res.end(JSON.stringify({ success: true }))
+            broadcastSSE('device-paired', { deviceId, deviceName })
+            console.log(`[HandoffService] Device registered via HTTP: ${deviceName} (${deviceId})`)
+          })
+        })
+        saveReq.on('error', (e: Error) => {
+          console.error('[HandoffService] Failed to save device:', e.message)
+          res.writeHead(500)
+          res.end(JSON.stringify({ error: 'internal error' }))
+        })
+        saveReq.write(postData)
+        saveReq.end()
+      } catch (e) {
+        res.writeHead(400)
+        res.end(JSON.stringify({ error: String(e) }))
+      }
+    })
+    return
+  }
+
   // Generate pairing QR data
   if (req.method === 'POST' && url === '/pair/generate') {
     const MAX_BODY = 1024 * 1024 // 1MB
