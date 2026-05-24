@@ -4,84 +4,95 @@ struct ContentView: View {
     @EnvironmentObject var connectionManager: ConnectionManager
     @EnvironmentObject var logger: DebugLogger
     @State private var showPairing = false
-    @State private var selectedTab = 0
+    @State private var showLogs = false
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            // Tab 0: Main
-            NavigationView {
-                List {
+        NavigationView {
+            List {
+                // Connection status
+                Section("连接状态") {
+                    HStack {
+                        Circle()
+                            .fill(connectionManager.baseURL.isEmpty ? Color.gray : Color.green)
+                            .frame(width: 10, height: 10)
+                        Text(connectionManager.baseURL.isEmpty ? "未配对" : "已配对: \(connectionManager.baseURL)")
+                            .font(.subheadline)
+                    }
                     if let error = connectionManager.connectionError {
-                        Section {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.red)
-                                Text(error)
-                                    .foregroundColor(.red)
-                                    .font(.subheadline)
-                            }
-                        }
-                    }
-
-                    Section("已配对设备") {
-                        if connectionManager.pairedDevices.isEmpty {
-                            Text("暂无配对设备")
-                                .foregroundColor(.secondary)
-                        }
-                        ForEach(connectionManager.pairedDevices) { device in
-                            HStack {
-                                Image(systemName: "desktopcomputer")
-                                VStack(alignment: .leading) {
-                                    Text(device.name)
-                                    Text(device.status)
-                                        .font(.caption)
-                                        .foregroundColor(device.isConnected ? .green : .secondary)
-                                }
-                            }
-                        }
-                    }
-
-                    Section("快速操作") {
-                        Button(action: { connectionManager.pullClipboard() }) {
-                            Label("获取 Windows 剪贴板", systemImage: "doc.on.clipboard")
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red)
+                            Text(error).foregroundColor(.red).font(.caption)
                         }
                     }
                 }
-                .navigationTitle("Handoff")
-                .toolbar {
+
+                // Paired devices
+                Section("已配对设备") {
+                    if connectionManager.pairedDevices.isEmpty {
+                        Text("暂无配对设备").foregroundColor(.secondary)
+                    }
+                    ForEach(connectionManager.pairedDevices) { device in
+                        HStack {
+                            Image(systemName: "desktopcomputer")
+                            VStack(alignment: .leading) {
+                                Text(device.name)
+                                Text(device.isConnected ? "在线" : "离线")
+                                    .font(.caption)
+                                    .foregroundColor(device.isConnected ? .green : .secondary)
+                            }
+                        }
+                    }
+                }
+
+                // Clipboard test
+                Section("剪贴板测试") {
+                    Button(action: { connectionManager.pullClipboard() }) {
+                        Label("获取 Windows 剪贴板", systemImage: "arrow.down.doc")
+                    }
+                    .disabled(connectionManager.baseURL.isEmpty)
+
                     Button(action: {
-                        logger.info("打开扫码配对")
-                        showPairing = true
+                        if let text = UIPasteboard.general.string, !text.isEmpty {
+                            connectionManager.sendClipboard(text)
+                        } else {
+                            logger.warn("iOS 剪贴板为空")
+                        }
                     }) {
-                        Image(systemName: "qrcode.viewfinder")
+                        Label("发送 iOS 剪贴板", systemImage: "arrow.up.doc")
+                    }
+                    .disabled(connectionManager.baseURL.isEmpty)
+
+                    if let content = connectionManager.clipboardContent, !content.isEmpty {
+                        Text("最新剪贴板: \(content.prefix(100))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
-                .sheet(isPresented: $showPairing) {
-                    PairingView()
+            }
+            .navigationTitle("Handoff")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack {
+                        Button(action: { showLogs = true }) {
+                            Image(systemName: "terminal")
+                        }
+                        Button(action: {
+                            logger.info("打开扫码配对")
+                            showPairing = true
+                        }) {
+                            Image(systemName: "qrcode.viewfinder")
+                        }
+                    }
                 }
             }
-            .tabItem {
-                Image(systemName: "rectangle.connected.to.line.below")
-                Text("设备")
-            }
-            .tag(0)
-
-            // Tab 1: Logs (only when debug mode on)
-            if logger.isDebugMode {
+            .sheet(isPresented: $showPairing) { PairingView() }
+            .sheet(isPresented: $showLogs) {
                 NavigationView {
                     LogView()
+                        .toolbar {
+                            Button("关闭") { showLogs = false }
+                        }
                 }
-                .tabItem {
-                    Image(systemName: "terminal.fill")
-                    Text("日志")
-                }
-                .tag(1)
-            }
-        }
-        .onChange(of: showPairing) { isShowing in
-            if !isShowing {
-                // modal dismissed, refresh device list
-                logger.debug("配对弹窗关闭")
             }
         }
     }

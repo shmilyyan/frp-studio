@@ -9,6 +9,7 @@ class ConnectionManager: ObservableObject {
     @Published var isConnecting = false
     @Published var connectionError: String?
 
+    var baseURL: String = ""
     private var webSocket: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
     private let logger = DebugLogger.shared
@@ -90,6 +91,10 @@ class ConnectionManager: ObservableObject {
         }
 
         logger.info("QR 解析成功: host=\(host), port=\(port)")
+
+        baseURL = "\(host):\(port)"
+        logger.info("baseURL 已设置: \(baseURL)")
+
         if let token = json["token"] as? String {
             logger.info("配对 token: \(token)")
         }
@@ -119,32 +124,50 @@ class ConnectionManager: ObservableObject {
     }
 
     func pullClipboard() {
-        guard let ws = webSocket else {
-            logger.warn("pullClipboard: WebSocket 未连接")
+        guard !baseURL.isEmpty else {
+            logger.warn("pullClipboard: baseURL not set")
             return
         }
-        logger.info("请求获取剪贴板")
-        let message = URLSessionWebSocketTask.Message.string("{\"type\":\"clipboard:latest\"}")
-        ws.send(message) { [weak self] error in
+        let url = URL(string: "http://\(baseURL)/clipboard/latest")!
+        logger.info("HTTP GET 剪贴板: \(url.absoluteString)")
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             if let error = error {
-                self?.logger.error("剪贴板请求发送失败: \(error.localizedDescription)")
+                self?.logger.error("剪贴板请求失败: \(error.localizedDescription)")
+                return
             }
-        }
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let payload = json["payload"] as? String, !payload.isEmpty else {
+                self?.logger.warn("剪贴板为空或解析失败")
+                return
+            }
+            DispatchQueue.main.async {
+                self?.clipboardContent = payload
+                UIPasteboard.general.string = payload
+                self?.logger.info("剪贴板已更新 (\(payload.count) 字符)")
+            }
+        }.resume()
     }
 
     func sendClipboard(_ content: String) {
-        guard let ws = webSocket else {
-            logger.warn("sendClipboard: WebSocket 未连接")
+        guard !baseURL.isEmpty else {
+            logger.warn("sendClipboard: baseURL not set")
             return
         }
-        let escaped = content.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        let msg = "{\"type\":\"clipboard\",\"payload\":\"\(escaped)\",\"timestamp\":\(Date().timeIntervalSince1970)}"
-        logger.info("发送剪贴板内容 (\(content.count) 字符)")
-        ws.send(.string(msg)) { [weak self] error in
+        let url = URL(string: "http://\(baseURL)/clipboard")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = ["payload": content]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        logger.info("HTTP POST 剪贴板: \(content.count) 字符")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
                 self?.logger.error("剪贴板发送失败: \(error.localizedDescription)")
+            } else {
+                self?.logger.info("剪贴板已发送")
             }
-        }
+        }.resume()
     }
 
     private func receiveMessage() {
