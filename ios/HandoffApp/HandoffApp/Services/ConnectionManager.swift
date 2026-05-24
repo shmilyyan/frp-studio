@@ -193,7 +193,7 @@ class ConnectionManager: ObservableObject {
                 self.lastRemoteClipboardHash = hash
                 self.clipboardContent = payload
                 UIPasteboard.general.string = payload
-                self.logger.info("剪贴板已同步 (\(payload.count) 字符)")
+                self.logger.warn("剪贴板已同步 (\(payload.count) 字符)")
             }
         }.resume()
     }
@@ -204,10 +204,10 @@ class ConnectionManager: ObservableObject {
         if socket?.status == .connected {
             socket?.emit("clipboard", ["payload": content])
             pendingClipboard = nil
-            logger.info("剪贴板已发送 (\(content.count) 字符)")
+            logger.warn("剪贴板已发送 (\(content.count) 字符)")
         } else {
             pendingClipboard = content
-            logger.info("剪贴板已缓存，等待 socket 连接 (\(content.count) 字符)")
+            logger.warn("剪贴板已缓存 (\(content.count) 字符), 等待 socket 连接")
         }
     }
 
@@ -298,7 +298,7 @@ class ConnectionManager: ObservableObject {
         socket = manager?.defaultSocket
 
         socket?.on(clientEvent: .connect) { [weak self] data, ack in
-            self?.logger.info("socket.io 已连接")
+            self?.logger.warn("socket.io 已连接")
             self?.connectionError = nil
             // Auth with device identity
             self?.socket?.emit("auth", [
@@ -309,7 +309,7 @@ class ConnectionManager: ObservableObject {
             // Flush any pending clipboard content first
             if let pending = self?.pendingClipboard {
                 self?.socket?.emit("clipboard", ["payload": pending])
-                self?.logger.info("缓存的剪贴板已发送 (\(pending.count) 字符)")
+                self?.logger.warn("缓存的剪贴板已发送 (\(pending.count) 字符)")
                 self?.pendingClipboard = nil
             }
             // Check clipboard on reconnect (may have changed while disconnected)
@@ -338,13 +338,13 @@ class ConnectionManager: ObservableObject {
                     self.lastRemoteClipboardHash = hash
                     UIPasteboard.general.string = payload
                     self.clipboardContent = payload
-                    self.logger.info("剪贴板已同步 (\(payload.count) 字符)")
+                    self.logger.warn("剪贴板已同步 (\(payload.count) 字符)")
                 }
             }
         }
 
         socket?.on(clientEvent: .disconnect) { [weak self] data, ack in
-            self?.logger.info("socket.io 断开")
+            self?.logger.warn("socket.io 断开")
             if let idx = self?.pairedDevices.firstIndex(where: { $0.deviceId == self?.currentDeviceId }) {
                 self?.pairedDevices[idx].isConnected = false
                 self?.saveDevices()
