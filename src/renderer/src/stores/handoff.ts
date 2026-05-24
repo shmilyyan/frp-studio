@@ -91,6 +91,9 @@ export const useHandoffStore = defineStore('handoff', () => {
         fetchDevices()
       } else if (event === 'device-revoked') {
         fetchDevices()
+      } else if (event === 'transfer-recorded') {
+        const record = data as TransferRecord
+        transferHistory.value.unshift(record)
       }
     })
     const clean2 = window.api.handoff.onServiceStatusChange(({ status }) => {
