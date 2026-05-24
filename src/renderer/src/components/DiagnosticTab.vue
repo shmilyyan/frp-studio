@@ -152,11 +152,11 @@ onMounted(async () => {
     const d = data as any
     if (event === 'ws-connection') addLog('info', `WS 连接: ${d.clientId?.slice(0,8)} (在线: ${d.connected})`)
     else if (event === 'ws-disconnection') addLog('info', `WS 断开: ${d.clientId?.slice(0,8)} (在线: ${d.connected})`)
-    else if (event === 'device-paired') { addLog('info', `设备配对: ${d.deviceName} (${d.deviceId})`); fetchStatus() }
-    else if (event === 'device-revoked') addLog('info', `设备撤销: ${d.deviceId}`)
-    else if (event === 'config-reloaded') addLog('info', '配置已重载')
-    else if (event === 'restarting') addLog('warn', '服务正在重启')
-    else if (event === 'transfer-recorded') addLog('debug', `传输记录: ${d.type} ${d.direction} ${d.detail?.slice(0,50)}`)
+    else if (event === 'device:paired') { addLog('info', `设备配对: ${d.deviceName} (${d.deviceId})`); fetchStatus() }
+    else if (event === 'device:revoked') addLog('info', `设备撤销: ${d.deviceId}`)
+    else if (event === 'config:reloaded') addLog('info', '配置已重载')
+    else if (event === 'service:restarting') addLog('warn', '服务正在重启')
+    else if (event === 'transfer:recorded') addLog('debug', `传输记录: ${d.type} ${d.direction} ${d.detail?.slice(0,50)}`)
     else if (event === 'connected') addLog('debug', '内部 SSE 已连接')
     else if (event === 'service-error') addLog('error', `[HandoffService] ${d.message}`)
     else addLog('debug', `${event}: ${JSON.stringify(d).slice(0, 200)}`)

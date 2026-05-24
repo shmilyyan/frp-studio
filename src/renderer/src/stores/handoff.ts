@@ -80,13 +80,13 @@ export const useHandoffStore = defineStore('handoff', () => {
     const clean1 = window.api.handoff.onEvent(({ event, data }) => {
       if (event === 'ws-connection' || event === 'ws-disconnection') {
         serviceConnections.value = (data as { connected: number }).connected
-      } else if (event === 'config-reloaded') {
+      } else if (event === 'config:reloaded') {
         fetchDevices()
-      } else if (event === 'device-paired') {
+      } else if (event === 'device:paired') {
         fetchDevices()
-      } else if (event === 'device-revoked') {
+      } else if (event === 'device:revoked') {
         fetchDevices()
-      } else if (event === 'transfer-recorded') {
+      } else if (event === 'transfer:recorded') {
         const record = data as TransferRecord
         transferHistory.value.unshift(record)
       }
