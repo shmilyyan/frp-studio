@@ -13,6 +13,7 @@ function broadcastError(msg: string): void {
 
 let serviceProcess: ChildProcess | null = null
 let restartCount = 0
+let intentionalStop = false
 const MAX_RESTART = 3
 const RESTART_DELAY = 3000
 
@@ -110,8 +111,14 @@ export function startHandoffService(): boolean {
     console.log(`[FRP Studio] HandoffService exited (code=${code}, signal=${signal})`)
     broadcastError(`HandoffService exited (code=${code}, signal=${signal})`)
     serviceProcess = null
-    restartCount++
 
+    if (intentionalStop) {
+      intentionalStop = false
+      restartCount = 0
+      return
+    }
+
+    restartCount++
     if (restartCount < MAX_RESTART) {
       console.log(`[FRP Studio] Restarting HandoffService in ${RESTART_DELAY}ms (attempt ${restartCount}/${MAX_RESTART})`)
       setTimeout(() => startHandoffService(), RESTART_DELAY)
@@ -127,6 +134,7 @@ export function startHandoffService(): boolean {
 }
 
 export function stopHandoffService(): void {
+  intentionalStop = true
   const pidFile = getPidFilePath()
   try {
     if (fs.existsSync(pidFile)) {
