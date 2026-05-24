@@ -96,9 +96,10 @@ export function registerHandoffHandlers(): void {
   ipcMain.handle('handoff:clipboard-get', async () => {
     return new Promise((resolve) => {
       http.get('http://127.0.0.1:19528/clipboard/latest', (res) => {
-        let data = ''
-        res.on('data', (c: Buffer) => { data += c })
+        const chunks: Buffer[] = []
+        res.on('data', (c: Buffer) => { chunks.push(c) })
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf-8')
           try { resolve(JSON.parse(data)) }
           catch { resolve({ payload: '', error: 'parse failed' }) }
         })
@@ -114,9 +115,10 @@ export function registerHandoffHandlers(): void {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
       }, (res) => {
-        let data = ''
-        res.on('data', (c: Buffer) => { data += c })
+        const chunks: Buffer[] = []
+        res.on('data', (c: Buffer) => { chunks.push(c) })
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf-8')
           try { resolve(JSON.parse(data)) }
           catch { resolve({ success: false, error: 'parse failed' }) }
         })

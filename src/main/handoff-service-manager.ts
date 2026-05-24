@@ -63,7 +63,8 @@ export function startHandoffService(): boolean {
   serviceProcess = spawn('node', [jsPath, userDataPath], {
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true
+    windowsHide: true,
+    env: { ...process.env, LC_ALL: 'en_US.UTF-8' }
   })
 
   serviceProcess.unref()

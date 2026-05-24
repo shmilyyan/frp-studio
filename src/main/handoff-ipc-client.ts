@@ -10,9 +10,10 @@ export function loadHandoffConfig(cfg: { port?: number }): void {
 async function httpGet(path: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     http.get(`http://127.0.0.1:${config.port}${path}`, (res) => {
-      let data = ''
-      res.on('data', (chunk) => { data += chunk })
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => { chunks.push(chunk) })
       res.on('end', () => {
+        const data = Buffer.concat(chunks).toString('utf-8')
         try { resolve(JSON.parse(data)) } catch { resolve(data) }
       })
     }).on('error', reject)
@@ -29,9 +30,10 @@ async function httpPost(path: string, body?: unknown): Promise<unknown> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
     }, (res) => {
-      let data = ''
-      res.on('data', (chunk) => { data += chunk })
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => { chunks.push(chunk) })
       res.on('end', () => {
+        const data = Buffer.concat(chunks).toString('utf-8')
         try { resolve(JSON.parse(data)) } catch { resolve(data) }
       })
     })

@@ -36,6 +36,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
@@ -61,7 +62,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   // Health check
   if (req.method === 'GET' && url === '/health') {
     const cfg = getConfig()
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({
       status: 'running',
       uptime: process.uptime(),
@@ -82,7 +83,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   if (req.method === 'GET' && url === '/devices') {
     reloadConfig()
     const config = getConfig()
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify(config.pairedDevices))
     return
   }
@@ -91,14 +92,14 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   if (req.method === 'POST' && url === '/config') {
     reloadConfig()
     broadcastSSE('config-reloaded', {})
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({ success: true }))
     return
   }
 
   // Restart service
   if (req.method === 'POST' && url === '/restart') {
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({ success: true }))
     broadcastSSE('restarting', {})
     setTimeout(() => process.exit(0), 500)
@@ -125,7 +126,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         const { deviceName, devicePublicKey } = JSON.parse(body)
         const { generatePairRequest } = require('./pairing')
         const result = generatePairRequest(deviceName, devicePublicKey)
-        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ success: true, qrData: result.qrData }))
       } catch (e) {
         res.writeHead(400)
@@ -171,7 +172,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         })
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
         broadcastSSE('device-paired', { deviceName: pending.deviceName })
-        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ success: true }))
       } catch (e) {
         res.writeHead(400)
@@ -188,7 +189,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     const configPath = path.join(process.argv[2] || path.join(process.env.APPDATA || '', 'frp-studio'), 'handoff.json')
     config.pairedDevices = config.pairedDevices.filter((d) => d.deviceId !== deviceIdToRevoke)
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({ success: true }))
     broadcastSSE('device-revoked', { deviceId: deviceIdToRevoke })
     return
@@ -200,7 +201,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     const cfg = getConfig()
     const { getLatestClipboard } = require('./clipboard')
     const { getConnectedClients } = require('./ws-server')
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({
       uptime: process.uptime(),
       version: getAppVersion(),
@@ -217,7 +218,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
   if (req.method === 'GET' && url === '/clipboard/latest') {
     const { getLatestClipboard } = require('./clipboard')
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify(getLatestClipboard()))
     return
   }

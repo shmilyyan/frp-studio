@@ -15,7 +15,7 @@ function execPowerShell(script: string): Promise<string> {
 }
 
 async function getClipboardText(): Promise<string> {
-  return execPowerShell('Get-Clipboard -Format Text')
+  return execPowerShell('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Clipboard -Format Text')
 }
 
 function hashContent(content: string): string {
