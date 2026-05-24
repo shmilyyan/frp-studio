@@ -274,16 +274,18 @@ class ConnectionManager: ObservableObject {
     func connectSocketIO(host: String, port: Int) {
         guard let url = URL(string: "http://\(host):\(port)") else { return }
         manager = SocketManager(socketURL: url, config: [
-            .log(false),
+            .log(true),
             .reconnects(true),
             .reconnectWait(1),
             .reconnectWaitMax(15),
+            .connectTimeout(15000),
             .extraHeaders(["User-Agent": "Handoff-iOS"])
         ])
         socket = manager?.defaultSocket
 
         socket?.on(clientEvent: .connect) { [weak self] data, ack in
             self?.logger.info("socket.io 已连接")
+            self?.connectionError = nil
             // Auth with device identity
             self?.socket?.emit("auth", [
                 "deviceId": self?.deviceId ?? "",
@@ -328,9 +330,11 @@ class ConnectionManager: ObservableObject {
         }
 
         socket?.on(clientEvent: .error) { [weak self] data, ack in
-            self?.logger.error("socket.io 错误: \(data)")
+            self?.logger.error("socket.io 错误 (\(host):\(port)): \(data)")
+            self?.connectionError = "无法连接到 \(host):\(port)"
         }
 
+        logger.info("正在连接 socket.io: \(host):\(port)")
         socket?.connect()
     }
 }
