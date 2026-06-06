@@ -16,6 +16,17 @@
       <a-input-number v-model:value="clipboardMaxSize" :min="1024" :max="104857600" style="width: 100%;" addon-after="bytes" />
     </a-form-item>
 
+    <a-form-item label="设备扫描间隔">
+      <a-input-number
+        v-model:value="scanInterval"
+        :min="5"
+        :max="3600"
+        style="width: 100%;"
+        addon-after="秒"
+      />
+      <span style="margin-left: 8px; color: #8c9aab; font-size: 12px;">最小 5 秒，调整即时生效</span>
+    </a-form-item>
+
     <a-divider>FRP 隧道</a-divider>
 
     <a-form-item label="启用 FRP 隧道中转">
@@ -38,6 +49,7 @@ const servicePort = ref(19528)
 const downloadDir = ref('Downloads/FrpTransfer')
 const clipboardMaxSize = ref(1048576)
 const frpTunnelEnabled = ref(false)
+const scanInterval = ref(30)
 const saved = ref(false)
 
 onMounted(async () => {
@@ -50,6 +62,7 @@ onMounted(async () => {
       downloadDir.value = c.downloadDir || 'Downloads/FrpTransfer'
       clipboardMaxSize.value = c.clipboardMaxSize || 1048576
       frpTunnelEnabled.value = c.frpTunnelEnabled || false
+      scanInterval.value = c.scannerInterval || 30
     }
   } catch { /* service may not be running */ }
 })
@@ -58,6 +71,7 @@ async function handleSave(): Promise<void> {
   saved.value = false
   try {
     await window.api.handoff.notifyConfig()
+    await window.api.handoff.setScanInterval(scanInterval.value)
     saved.value = true
     setTimeout(() => { saved.value = false }, 3000)
   } catch {

@@ -6,6 +6,8 @@ export interface PairedDevice {
   deviceName: string
   publicKey: string
   enabled: boolean
+  lastSeen: number
+  lastIp: string
 }
 
 export interface TransferRecord {
@@ -26,6 +28,7 @@ export const useHandoffStore = defineStore('handoff', () => {
   const devices = ref<PairedDevice[]>([])
   const transferHistory = ref<TransferRecord[]>([])
   const sseCleanup = ref<(() => void) | null>(null)
+  const onlineDevices = ref<Record<string, 'online' | 'reachable' | 'offline'>>({})
 
   const isRunning = computed(() => serviceStatus.value === 'running')
 
@@ -89,6 +92,24 @@ export const useHandoffStore = defineStore('handoff', () => {
       } else if (event === 'transfer:recorded') {
         const record = data as TransferRecord
         transferHistory.value.unshift(record)
+      } else if (event === 'peer:connected') {
+        const { deviceId } = data as { deviceId: string }
+        onlineDevices.value[deviceId] = 'online'
+      } else if (event === 'peer:disconnected') {
+        const { deviceId } = data as { deviceId: string }
+        if (onlineDevices.value[deviceId] !== 'reachable') {
+          onlineDevices.value[deviceId] = 'offline'
+        }
+      } else if (event === 'bonjour:found') {
+        const { deviceId } = data as { deviceId: string }
+        if (onlineDevices.value[deviceId] !== 'online') {
+          onlineDevices.value[deviceId] = 'reachable'
+        }
+      } else if (event === 'bonjour:lost') {
+        const { deviceId } = data as { deviceId: string }
+        if (onlineDevices.value[deviceId] !== 'online') {
+          onlineDevices.value[deviceId] = 'offline'
+        }
       }
     })
     const clean2 = window.api.handoff.onServiceStatusChange(({ status }) => {
@@ -105,12 +126,22 @@ export const useHandoffStore = defineStore('handoff', () => {
     window.api.handoff.disconnectSSE()
   }
 
+  async function scanDevices(): Promise<void> {
+    await window.api.handoff.scanDevices()
+  }
+
+  async function setScanInterval(seconds: number): Promise<void> {
+    await window.api.handoff.setScanInterval(seconds)
+  }
+
   return {
     serviceStatus, serviceUptime, serviceConnections, devices, transferHistory,
     isRunning,
     fetchServiceStatus, startService, stopService, restartService,
     fetchDevices, deleteDevice, generatePairing,
     fetchTransferHistory, clearHistory,
-    connectSSE, disconnectSSE
+    connectSSE, disconnectSSE,
+    onlineDevices,
+    scanDevices, setScanInterval
   }
 })
