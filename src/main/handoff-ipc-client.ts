@@ -43,6 +43,9 @@ export function connectClient(onEvent: (event: string, data: unknown) => void): 
   socket.on('config:reloaded', () => onEvent('config:reloaded', {}))
   socket.on('service:error', (data) => onEvent('service:error', data))
   socket.on('peer:disconnected', (data) => onEvent('peer:disconnected', data))
+  socket.on('peer:connected', (data) => onEvent('peer:connected', data))
+  socket.on('bonjour:found', (data) => onEvent('bonjour:found', data))
+  socket.on('bonjour:lost', (data) => onEvent('bonjour:lost', data))
 
   socket.on('connect', () => {
     onEvent('service-status-change', { status: 'running' })

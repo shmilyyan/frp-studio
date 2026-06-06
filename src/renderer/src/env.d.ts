@@ -143,12 +143,21 @@ declare global {
             config?: { deviceName?: string; port?: number; downloadDir?: string; clipboardMaxSize?: number; frpTunnelEnabled?: boolean }
           } | null
         }>
-        listDevices(): Promise<unknown[]>
+        listDevices(): Promise<Array<{
+          deviceId: string
+          deviceName: string
+          publicKey: string
+          enabled: boolean
+          lastSeen: number
+          lastIp: string
+        }>>
         deleteDevice(deviceId: string): Promise<{ success: boolean }>
         generatePairing(deviceName: string, devicePublicKey: string): Promise<{ success: boolean; qrData?: string; error?: string }>
         transferHistory(type?: string, limit?: number): Promise<unknown[]>
         clearHistory(): Promise<{ success: boolean }>
         notifyConfig(): Promise<{ success: boolean }>
+        scanDevices(): Promise<{ success: boolean }>
+        setScanInterval(seconds: number): Promise<{ success: boolean }>
         clipboardGet(): Promise<{ payload?: string; error?: string }>
         clipboardSend(text: string): Promise<{ success?: boolean; written?: number; error?: string }>
         connectSSE(): Promise<void>

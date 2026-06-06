@@ -77,7 +77,9 @@ export function registerHandoffHandlers(): void {
       deviceId: d.device_id,
       deviceName: d.device_name,
       publicKey: d.public_key,
-      enabled: !!d.enabled
+      enabled: !!d.enabled,
+      lastSeen: d.last_seen || 0,
+      lastIp: d.last_ip || ''
     }))
   })
 
@@ -92,6 +94,18 @@ export function registerHandoffHandlers(): void {
 
   ipcMain.handle('handoff:notify-config', async () => {
     await httpPost('/config')
+    return { success: true }
+  })
+
+  // ─── Device scanning ────────────────────────────────────────────────────
+
+  ipcMain.handle('handoff:scan-devices', async () => {
+    await httpPost('/internal/scan-devices')
+    return { success: true }
+  })
+
+  ipcMain.handle('handoff:set-scan-interval', async (_e, seconds: number) => {
+    await httpPost('/internal/set-scan-interval', { interval: Math.max(5, seconds) })
     return { success: true }
   })
 
