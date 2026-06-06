@@ -273,6 +273,28 @@ export function deletePairedDevice(id: number): void {
   saveDatabase()
 }
 
+export function updateDeviceStatus(deviceId: string, data: {
+  last_seen?: number
+  last_ip?: string
+}): void {
+  const device = getPairedDeviceByDeviceId(deviceId)
+  if (!device) return
+  const fields: string[] = []
+  const values: (string | number)[] = []
+  if (data.last_seen !== undefined) {
+    fields.push('last_seen = ?')
+    values.push(data.last_seen)
+  }
+  if (data.last_ip !== undefined) {
+    fields.push('last_ip = ?')
+    values.push(data.last_ip)
+  }
+  if (fields.length === 0) return
+  values.push(device.id)
+  getDb().run(`UPDATE paired_devices SET ${fields.join(', ')} WHERE id = ?`, values)
+  saveDatabase()
+}
+
 // ─── Transfer History operations ─────────────────────────────────────────────
 
 export function listTransferHistory(limit = 50, type?: string): TransferHistoryRow[] {

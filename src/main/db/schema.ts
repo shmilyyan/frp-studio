@@ -52,7 +52,8 @@ export const MIGRATIONS: string[] = [
   `ALTER TABLE tunnels ADD COLUMN group_name TEXT DEFAULT '默认分组';`,
   `ALTER TABLE tunnels ADD COLUMN extra_attrs TEXT DEFAULT '{}';`,
   `ALTER TABLE nodes ADD COLUMN auto_start INTEGER DEFAULT 0;`,
-  `ALTER TABLE tunnels ADD COLUMN auto_start INTEGER DEFAULT 1;`
+  `ALTER TABLE tunnels ADD COLUMN auto_start INTEGER DEFAULT 1;`,
+  `ALTER TABLE paired_devices ADD COLUMN last_ip TEXT DEFAULT '';`,
 ]
 
 export interface NodeRow {
@@ -89,6 +90,7 @@ export interface PairedDeviceRow {
   public_key: string
   paired_at: number
   last_seen: number
+  last_ip: string
   enabled: number
 }
 
