@@ -59,8 +59,27 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
         req.write(postData)
         req.end()
 
+        // Update device online status (last_seen + last_ip)
+        const statusPost = JSON.stringify({
+          deviceId: msg.deviceId,
+          online: true,
+          ip: socket.handshake.address
+        })
+        const statusReq = http.request({
+          hostname: '127.0.0.1', port: 19529, path: '/internal/device-status',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(statusPost) }
+        }, () => {})
+        statusReq.on('error', (e: Error) => console.error('[socket.io] Failed to update device status:', e.message))
+        statusReq.write(statusPost)
+        statusReq.end()
+
         // Notify admin
         io!.to('admin').emit('device:paired', { deviceId: msg.deviceId, deviceName: msg.deviceName })
+        io!.to('admin').emit('peer:connected', {
+          deviceId: msg.deviceId,
+          ip: socket.handshake.address
+        })
         socket.emit('auth:ok', { role: 'peer', deviceId: msg.deviceId })
         console.log(`[socket.io] Peer registered: ${msg.deviceName} (${msg.deviceId})`)
         return
@@ -100,6 +119,21 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
     socket.on('disconnect', (reason) => {
       console.log(`[socket.io] Client disconnected: ${socket.id} (${reason})`)
       if (socket.data.role === 'peer') {
+        // Update device offline status
+        if (socket.data.deviceId) {
+          const offlinePost = JSON.stringify({
+            deviceId: socket.data.deviceId,
+            online: false
+          })
+          const offlineReq = http.request({
+            hostname: '127.0.0.1', port: 19529, path: '/internal/device-status',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(offlinePost) }
+          }, () => {})
+          offlineReq.on('error', () => { /* silent */ })
+          offlineReq.write(offlinePost)
+          offlineReq.end()
+        }
         io!.to('admin').emit('peer:disconnected', { socketId: socket.id, deviceId: socket.data.deviceId })
       }
     })
