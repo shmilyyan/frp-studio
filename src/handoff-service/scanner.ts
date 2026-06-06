@@ -2,11 +2,12 @@ import http from 'http'
 import { getConfig } from './config'
 
 let scanTimer: ReturnType<typeof setInterval> | null = null
-let knownOnlineDevices: Set<string> = new Set()
+let previousDevices: Set<string> = new Set()
+let currentScanDevices: Set<string> = new Set()
 
 function notifyDeviceFound(deviceId: string, ip: string): void {
-  if (knownOnlineDevices.has(deviceId)) return
-  knownOnlineDevices.add(deviceId)
+  currentScanDevices.add(deviceId)
+  if (previousDevices.has(deviceId)) return  // already known from previous scan
 
   console.log(`[scanner] Bonjour 发现设备: ${deviceId} @ ${ip}`)
 
@@ -28,29 +29,33 @@ function notifyDeviceFound(deviceId: string, ip: string): void {
   } catch { /* socket may not be initialized yet */ }
 }
 
-function notifyDevicesOffline(): void {
-  for (const deviceId of knownOnlineDevices) {
-    const postData = JSON.stringify({ deviceId, online: false, source: 'bonjour' })
-    const req = http.request({
-      hostname: '127.0.0.1', port: 19529, path: '/internal/device-status',
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
-    }, () => {})
-    req.on('error', () => { /* silent */ })
-    req.write(postData)
-    req.end()
+function finalizeScan(): void {
+  // Devices in previous but not in current → went offline
+  for (const deviceId of previousDevices) {
+    if (!currentScanDevices.has(deviceId)) {
+      const postData = JSON.stringify({ deviceId, online: false, source: 'bonjour' })
+      const req = http.request({
+        hostname: '127.0.0.1', port: 19529, path: '/internal/device-status',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+      }, () => {})
+      req.on('error', () => { /* silent */ })
+      req.write(postData)
+      req.end()
 
-    try {
-      const { notifyAdmin } = require('./socket')
-      notifyAdmin('bonjour:lost', { deviceId })
-    } catch { /* silent */ }
+      try {
+        const { notifyAdmin } = require('./socket')
+        notifyAdmin('bonjour:lost', { deviceId })
+      } catch { /* silent */ }
+    }
   }
-  knownOnlineDevices.clear()
+  previousDevices = currentScanDevices
+  currentScanDevices = new Set()
 }
 
 export function refreshScan(): void {
   console.log('[scanner] 手动扫描触发')
-  notifyDevicesOffline()
+  currentScanDevices.clear()
 }
 
 export function startScanner(onScan: () => void): void {
@@ -60,8 +65,9 @@ export function startScanner(onScan: () => void): void {
   console.log(`[scanner] 定时扫描已启动 (间隔 ${interval / 1000}s)`)
 
   scanTimer = setInterval(() => {
-    notifyDevicesOffline()
     onScan()
+    // Finalize after giving mDNS time to collect responses (1s grace period)
+    setTimeout(() => finalizeScan(), 1000)
   }, interval)
 }
 
@@ -69,6 +75,11 @@ export function setScanInterval(seconds: number): void {
   if (seconds < 5) seconds = 5
   const config = getConfig()
   config.scanner.interval = seconds
+  // Persist to disk
+  try {
+    const { saveScannerInterval } = require('./config')
+    saveScannerInterval(seconds)
+  } catch { /* best effort */ }
   // Restart timer with new interval
   const { queryMDNS } = require('./mdns')
   startScanner(() => queryMDNS())
@@ -79,6 +90,8 @@ export function stopScanner(): void {
     clearInterval(scanTimer)
     scanTimer = null
   }
+  previousDevices.clear()
+  currentScanDevices.clear()
 }
 
 export function onBonjourDeviceFound(deviceId: string, ip: string): void {

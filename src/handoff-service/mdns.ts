@@ -22,6 +22,24 @@ function getVersion(): string {
   return '0.1.0'
 }
 
+// Parse DNS-SD TXT record format (length-prefixed key=value strings)
+function parseDNSSDTXT(buf: Buffer): Record<string, string> {
+  const result: Record<string, string> = {}
+  let offset = 0
+  while (offset < buf.length) {
+    const len = buf[offset]
+    offset += 1
+    if (len === 0 || offset + len > buf.length) break
+    const entry = buf.slice(offset, offset + len).toString('utf-8')
+    offset += len
+    const eq = entry.indexOf('=')
+    if (eq > 0) {
+      result[entry.slice(0, eq)] = entry.slice(eq + 1)
+    }
+  }
+  return result
+}
+
 export function startMDNSBroadcast(): void {
   const config = getConfig()
   mdns = multicastDns()
@@ -70,23 +88,9 @@ export function startMDNSBroadcast(): void {
     for (const answer of response.answers) {
       if (answer.type === 'TXT' && answer.name.endsWith('._handoff._tcp.local')) {
         try {
-          let txtData: Record<string, string> = {}
           const txtBuf = Buffer.isBuffer(answer.data) ? answer.data : Buffer.from(String(answer.data || ''))
-          // Parse key=value TXT record format (DNS-SD style)
-          const txtStr = txtBuf.toString('utf-8')
-          // Try JSON first, then key=value pairs
-          try {
-            txtData = JSON.parse(txtStr)
-          } catch {
-            // key=value format: split by non-printable separators or commas
-            const pairs = txtStr.split(/[\x00-\x1f,]+/).filter(Boolean)
-            for (const pair of pairs) {
-              const eq = pair.indexOf('=')
-              if (eq > 0) {
-                txtData[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim()
-              }
-            }
-          }
+          const txtData = parseDNSSDTXT(txtBuf)
+          if (Object.keys(txtData).length === 0) continue
           const deviceId = txtData['deviceId']
           const platform = txtData['platform'] || ''
           if (deviceId && platform === 'ios') {

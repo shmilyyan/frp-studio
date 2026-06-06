@@ -320,8 +320,19 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
   // 设置扫描间隔
   if (req.method === 'POST' && url === '/scanner/interval') {
+    const MAX_BODY = 64 * 1024 // 64KB is plenty for {"interval": 30}
     const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+    let bodyLength = 0
+    req.on('data', (chunk: Buffer) => {
+      bodyLength += chunk.length
+      if (bodyLength > MAX_BODY) {
+        res.writeHead(413)
+        res.end(JSON.stringify({ error: 'request body too large' }))
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
     req.on('end', () => {
       try {
         const { interval } = JSON.parse(Buffer.concat(chunks).toString('utf-8'))

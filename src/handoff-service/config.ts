@@ -68,6 +68,18 @@ export function getConfig(): HandoffConfig {
   return config
 }
 
+export function saveScannerInterval(seconds: number): void {
+  if (!configPath) return
+  config.scanner.interval = seconds
+  try {
+    const raw = fs.readFileSync(configPath, 'utf-8')
+    const parsed = JSON.parse(raw)
+    if (!parsed.scanner) parsed.scanner = {}
+    parsed.scanner.interval = seconds
+    fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf-8')
+  } catch { /* best effort */ }
+}
+
 export function reloadConfig(): HandoffConfig {
   if (!configPath) return config
   try {
