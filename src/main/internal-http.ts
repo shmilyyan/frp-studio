@@ -25,7 +25,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         deviceId: d.device_id,
         deviceName: d.device_name,
         publicKey: d.public_key,
-        enabled: !!d.enabled
+        enabled: !!d.enabled,
+        lastSeen: d.last_seen || 0,
+        lastIp: d.last_ip || ''
       }))
       res.writeHead(200)
       res.end(JSON.stringify(devices))
@@ -93,6 +95,82 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           res.writeHead(404)
           res.end(JSON.stringify({ error: 'device not found' }))
         }
+      } catch (e) {
+        res.writeHead(400)
+        res.end(JSON.stringify({ error: String(e) }))
+      }
+      return
+    }
+
+    // POST /internal/device-status — update device online status
+    if (req.method === 'POST' && url === '/internal/device-status') {
+      try {
+        const { deviceId, ip } = JSON.parse(body || '{}')
+        const { updateDeviceStatus, getPairedDeviceByDeviceId } = require('./db')
+        const device = getPairedDeviceByDeviceId(deviceId)
+        if (device) {
+          const now = Math.floor(Date.now() / 1000)
+          const updateData: { last_seen?: number; last_ip?: string } = { last_seen: now }
+          if (ip && ip !== '0.0.0.0' && ip !== '::1' && ip !== '127.0.0.1') {
+            updateData.last_ip = ip
+          }
+          updateDeviceStatus(deviceId, updateData)
+        }
+        res.writeHead(200)
+        res.end(JSON.stringify({ success: true }))
+      } catch (e) {
+        res.writeHead(400)
+        res.end(JSON.stringify({ error: String(e) }))
+      }
+      return
+    }
+
+    // POST /internal/scan-devices — proxy to HandoffService
+    if (req.method === 'POST' && url === '/internal/scan-devices') {
+      const proxyReq = http.request({
+        hostname: '127.0.0.1', port: 19528, path: '/scanner/scan',
+        method: 'POST'
+      }, (proxyRes) => {
+        const chunks: Buffer[] = []
+        proxyRes.on('data', (c: Buffer) => chunks.push(c))
+        proxyRes.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf-8')
+          res.writeHead(proxyRes.statusCode || 200)
+          res.end(data)
+        })
+      })
+      proxyReq.on('error', () => {
+        res.writeHead(503)
+        res.end(JSON.stringify({ error: 'handoff service not reachable' }))
+      })
+      proxyReq.end()
+      return
+    }
+
+    // POST /internal/set-scan-interval — proxy to HandoffService
+    if (req.method === 'POST' && url === '/internal/set-scan-interval') {
+      try {
+        const { interval } = JSON.parse(body || '{}')
+        const postData = JSON.stringify({ interval: Math.max(5, interval || 30) })
+        const proxyReq = http.request({
+          hostname: '127.0.0.1', port: 19528, path: '/scanner/interval',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+        }, (proxyRes) => {
+          const chunks: Buffer[] = []
+          proxyRes.on('data', (c: Buffer) => chunks.push(c))
+          proxyRes.on('end', () => {
+            const data = Buffer.concat(chunks).toString('utf-8')
+            res.writeHead(proxyRes.statusCode || 200)
+            res.end(data)
+          })
+        })
+        proxyReq.on('error', () => {
+          res.writeHead(503)
+          res.end(JSON.stringify({ error: 'handoff service not reachable' }))
+        })
+        proxyReq.write(postData)
+        proxyReq.end()
       } catch (e) {
         res.writeHead(400)
         res.end(JSON.stringify({ error: String(e) }))
