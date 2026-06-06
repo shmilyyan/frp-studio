@@ -274,23 +274,30 @@ class ConnectionManager: ObservableObject {
     // MARK: - Task 10b: Device identity + /pair/confirm
 
     private func ensureIdentity() {
+        // 1. 优先从 Keychain 读取（卸载重装后保持不变）
+        if let savedId = KeychainHelper.read(key: "device_identity") {
+            deviceId = savedId
+            logger.info("设备身份已加载 (Keychain): \(deviceId)")
+            return
+        }
+
+        // 2. 兼容旧数据：从 UserDefaults 迁移到 Keychain
         if let saved = UserDefaults.standard.data(forKey: identityKey),
            let dict = try? JSONSerialization.jsonObject(with: saved) as? [String: String],
            let savedDeviceId = dict["deviceId"] {
             deviceId = savedDeviceId
-            logger.info("设备身份已加载: \(deviceId)")
+            _ = KeychainHelper.save(key: "device_identity", value: deviceId)
+            UserDefaults.standard.removeObject(forKey: identityKey)
+            logger.info("设备身份已迁移到 Keychain: \(deviceId)")
             return
         }
 
+        // 3. 全新生成
         var randomBytes = [UInt8](repeating: 0, count: 16)
         _ = SecRandomCopyBytes(kSecRandomDefault, 16, &randomBytes)
         deviceId = randomBytes.map { String(format: "%02x", $0) }.joined()
-
-        let identity: [String: String] = ["deviceId": deviceId]
-        if let data = try? JSONSerialization.data(withJSONObject: identity) {
-            UserDefaults.standard.set(data, forKey: identityKey)
-        }
-        logger.info("新设备身份已生成: \(deviceId)")
+        _ = KeychainHelper.save(key: "device_identity", value: deviceId)
+        logger.info("新设备身份已生成 (Keychain): \(deviceId)")
     }
 
     func connectSocketIO(host: String, port: Int) {
