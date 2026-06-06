@@ -367,4 +367,14 @@ class ConnectionManager: ObservableObject {
         logger.warn("正在连接 socket.io: \(host):\(port)")
         socket?.connect()
     }
+
+    func reconnect() {
+        logger.warn("手动重连触发")
+        socket?.disconnect()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.socket?.connect()
+            DiscoveryService.shared.startBrowsing()
+            ClipboardService.shared.checkNow()
+        }
+    }
 }

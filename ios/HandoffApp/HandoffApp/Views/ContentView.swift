@@ -111,8 +111,13 @@ struct ContentView: View {
                     }
                 }
             }
+            .refreshable {
+                connectionManager.reconnect()
+                logger.warn("下拉刷新：已触发重连")
+            }
             .onAppear {
                 DiscoveryService.shared.startBrowsing()
+                AdvertiseService.shared.start()
             }
             .navigationTitle("Handoff")
             .toolbar {
