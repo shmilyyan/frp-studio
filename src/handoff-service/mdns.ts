@@ -65,6 +65,49 @@ export function startMDNSBroadcast(): void {
     })
   })
 
+  // 监听 mDNS 响应 — 解析 iOS 设备的 Bonjour 宣告
+  mdns.on('response', (response) => {
+    for (const answer of response.answers) {
+      if (answer.type === 'TXT' && answer.name.endsWith('._handoff._tcp.local')) {
+        try {
+          let txtData: Record<string, string> = {}
+          const txtBuf = Buffer.isBuffer(answer.data) ? answer.data : Buffer.from(String(answer.data || ''))
+          // Parse key=value TXT record format (DNS-SD style)
+          const txtStr = txtBuf.toString('utf-8')
+          // Try JSON first, then key=value pairs
+          try {
+            txtData = JSON.parse(txtStr)
+          } catch {
+            // key=value format: split by non-printable separators or commas
+            const pairs = txtStr.split(/[\x00-\x1f,]+/).filter(Boolean)
+            for (const pair of pairs) {
+              const eq = pair.indexOf('=')
+              if (eq > 0) {
+                txtData[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim()
+              }
+            }
+          }
+          const deviceId = txtData['deviceId']
+          const platform = txtData['platform'] || ''
+          if (deviceId && platform === 'ios') {
+            // Try to get IP from additional records
+            let ip = '0.0.0.0'
+            for (const add of (response.additionals || [])) {
+              if (add.type === 'A' && add.name === answer.name) {
+                ip = String(add.data || '0.0.0.0')
+                break
+              }
+            }
+            try {
+              const { onBonjourDeviceFound } = require('./scanner')
+              onBonjourDeviceFound(deviceId, ip)
+            } catch { /* scanner may not be started yet */ }
+          }
+        } catch { /* 解析失败跳过 */ }
+      }
+    }
+  })
+
   // Periodic announcement every 30 seconds (triggers responses + proactive query)
   setInterval(() => {
     mdns!.query({ questions: [{ name: '_handoff._tcp.local', type: 'PTR' }] })
@@ -107,4 +150,9 @@ export function stopMDNSBroadcast(): void {
     mdns.destroy()
     mdns = null
   }
+}
+
+export function queryMDNS(): void {
+  if (!mdns) return
+  mdns.query({ questions: [{ name: '_handoff._tcp.local', type: 'PTR' }] })
 }

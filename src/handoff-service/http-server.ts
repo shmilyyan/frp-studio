@@ -47,7 +47,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         port: cfg.server.port,
         downloadDir: cfg.device.downloadDir || '',
         clipboardMaxSize: cfg.features.clipboardMaxSize,
-        frpTunnelEnabled: cfg.frpTunnel.enabled
+        frpTunnelEnabled: cfg.frpTunnel.enabled,
+        scannerInterval: cfg.scanner.interval
       }
     }))
     return
@@ -291,6 +292,43 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           res.writeHead(400)
           res.end(JSON.stringify({ error: 'missing payload' }))
         }
+      } catch (e) {
+        res.writeHead(400)
+        res.end(JSON.stringify({ error: String(e) }))
+      }
+    })
+    return
+  }
+
+  // ─── Scanner control endpoints ───────────────────────────────────────────
+
+  // 手动触发一次扫描
+  if (req.method === 'POST' && url === '/scanner/scan') {
+    try {
+      const { refreshScan } = require('./scanner')
+      const { queryMDNS } = require('./mdns')
+      refreshScan()
+      queryMDNS()
+      res.writeHead(200)
+      res.end(JSON.stringify({ success: true }))
+    } catch (e) {
+      res.writeHead(500)
+      res.end(JSON.stringify({ error: String(e) }))
+    }
+    return
+  }
+
+  // 设置扫描间隔
+  if (req.method === 'POST' && url === '/scanner/interval') {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+    req.on('end', () => {
+      try {
+        const { interval } = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
+        const { setScanInterval } = require('./scanner')
+        setScanInterval(Math.max(5, interval || 30))
+        res.writeHead(200)
+        res.end(JSON.stringify({ success: true, interval: Math.max(5, interval || 30) }))
       } catch (e) {
         res.writeHead(400)
         res.end(JSON.stringify({ error: String(e) }))

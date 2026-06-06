@@ -39,6 +39,12 @@ async function main(): Promise<void> {
   const { startMDNSBroadcast } = await import('./mdns')
   startMDNSBroadcast()
 
+  // 启动 Bonjour 定时扫描器
+  const { startScanner } = await import('./scanner')
+  const { queryMDNS } = await import('./mdns')
+  startScanner(() => queryMDNS())
+  console.log('[HandoffService] Scanner started')
+
   // Start clipboard watcher (broadcasts changes to all connected peers)
   const { startClipboardWatcher } = await import('./clipboard')
   startClipboardWatcher((content) => {
