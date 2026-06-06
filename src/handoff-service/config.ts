@@ -20,13 +20,17 @@ export interface HandoffConfig {
     nodeId: number | null
     remotePort: number
   }
+  scanner: {
+    interval: number  // 单位：秒，最小值 5
+  }
 }
 
 const defaultConfig: HandoffConfig = {
   server: { port: 19528, bindAddress: '0.0.0.0' },
   device: { name: 'My-Windows-PC', downloadDir: '' },
   features: { clipboardSync: true, fileTransfer: true, clipboardMaxSize: 1048576 },
-  frpTunnel: { enabled: false, nodeId: null, remotePort: 19528 }
+  frpTunnel: { enabled: false, nodeId: null, remotePort: 19528 },
+  scanner: { interval: 30 }
 }
 
 let configPath = ''
@@ -44,7 +48,8 @@ export function loadConfig(configDir: string): HandoffConfig {
         server: { ...defaultConfig.server, ...(parsed.server || {}) },
         device: { ...defaultConfig.device, ...(parsed.device || {}) },
         features: { ...defaultConfig.features, ...(parsed.features || {}) },
-        frpTunnel: { ...defaultConfig.frpTunnel, ...(parsed.frpTunnel || {}) }
+        frpTunnel: { ...defaultConfig.frpTunnel, ...(parsed.frpTunnel || {}) },
+        scanner: { ...defaultConfig.scanner, ...(parsed.scanner || {}) }
       }
       if (parsed.pairedDevices && parsed.pairedDevices.length > 0) {
         console.log(`[HandoffService] Found ${parsed.pairedDevices.length} legacy paired devices in config — migration is handled by main process`)
@@ -74,7 +79,8 @@ export function reloadConfig(): HandoffConfig {
       server: { ...defaultConfig.server, ...(parsed.server || {}) },
       device: { ...defaultConfig.device, ...(parsed.device || {}) },
       features: { ...defaultConfig.features, ...(parsed.features || {}) },
-      frpTunnel: { ...defaultConfig.frpTunnel, ...(parsed.frpTunnel || {}) }
+      frpTunnel: { ...defaultConfig.frpTunnel, ...(parsed.frpTunnel || {}) },
+      scanner: { ...defaultConfig.scanner, ...(parsed.scanner || {}) }
     }
     if (parsed.pairedDevices && parsed.pairedDevices.length > 0) {
       console.log(`[HandoffService] Found ${parsed.pairedDevices.length} legacy paired devices in config — migration is handled by main process`)
