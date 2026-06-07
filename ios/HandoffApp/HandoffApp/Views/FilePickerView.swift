@@ -5,7 +5,12 @@ struct FilePickerView: UIViewControllerRepresentable {
     let onFileSelected: (URL) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.data])
+        // Use most permissive types for iOS 26 compatibility
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [
+            .item, .data, .content, .archive,
+            .image, .audiovisualContent, .text, .pdf
+        ])
+        picker.allowsMultipleSelection = false
         picker.delegate = context.coordinator
         return picker
     }
@@ -25,11 +30,29 @@ struct FilePickerView: UIViewControllerRepresentable {
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { return }
-            let secured = url.startAccessingSecurityScopedResource()
-            onFileSelected(url)
-            if secured {
-                url.stopAccessingSecurityScopedResource()
+            // Copy to temp to avoid security-scoped resource expiry during upload
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathComponent(url.lastPathComponent)
+            try? FileManager.default.createDirectory(at: tempURL.deletingLastPathComponent(),
+                                                      withIntermediateDirectories: true)
+            do {
+                if url.startAccessingSecurityScopedResource() {
+                    defer { url.stopAccessingSecurityScopedResource() }
+                    try FileManager.default.copyItem(at: url, to: tempURL)
+                } else {
+                    try FileManager.default.copyItem(at: url, to: tempURL)
+                }
+                onFileSelected(tempURL)
+            } catch {
+                // Fallback: try direct URL
+                _ = url.startAccessingSecurityScopedResource()
+                onFileSelected(url)
             }
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            // User cancelled — no action needed
         }
     }
 }
