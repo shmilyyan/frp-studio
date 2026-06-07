@@ -58,20 +58,11 @@ class ConnectionManager: ObservableObject {
     private let storageKey = "handoff_paired_devices"
 
     init() {
-        loadDevices()
-        ensureIdentity()
-        // Restore previous connection
-        if let saved = UserDefaults.standard.string(forKey: "handoff_baseURL"), !saved.isEmpty {
-            baseURL = saved
-            logger.warn("已恢复连接: \(saved)")
-        }
-        logger.info("已加载 \(pairedDevices.count) 个已配对设备")
-        // Observe clipboard changes via NotificationCenter (avoids @StateObject capture issues)
-        NotificationCenter.default.addObserver(forName: ClipboardService.clipboardChangedNotification, object: nil, queue: .main) { [weak self] notification in
-            if let text = notification.userInfo?["text"] as? String {
-                self?.sendClipboard(text)
-            }
-        }
+        logger.info("ConnectionManager init — services disabled for diagnosis")
+        // loadDevices()
+        // ensureIdentity()
+        // if let saved = UserDefaults.standard.string(forKey: "handoff_baseURL"), !saved.isEmpty { ... }
+        // NotificationCenter.default.addObserver(...)
     }
 
     private var pendingClipboard: String?

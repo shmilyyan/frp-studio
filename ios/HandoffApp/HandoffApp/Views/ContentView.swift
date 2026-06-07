@@ -116,10 +116,11 @@ struct ContentView: View {
                 logger.warn("下拉刷新：已触发重连")
             }
             .onAppear {
-                _ = UIPasteboard.general.string
-                ClipboardService.shared.startMonitoring()
-                DiscoveryService.shared.startBrowsing()
-                AdvertiseService.shared.start()
+                logger.info("ContentView appeared — services disabled for diagnosis")
+                // _ = UIPasteboard.general.string
+                // ClipboardService.shared.startMonitoring()
+                // DiscoveryService.shared.startBrowsing()
+                // AdvertiseService.shared.start()
             }
             .navigationTitle("Handoff")
             .toolbar {

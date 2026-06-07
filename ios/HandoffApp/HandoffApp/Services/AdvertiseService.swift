@@ -20,8 +20,8 @@ class AdvertiseService: NSObject, ObservableObject, NetServiceDelegate {
         let identityKey = "handoff_identity"
         var deviceId = ""
         if let saved = UserDefaults.standard.data(forKey: identityKey),
-           let dict = try? JSONSerialization.jsonObject(with: saved) as? [String: String],
-           let savedId = dict["deviceId"] {
+           let dict = try? JSONSerialization.jsonObject(with: saved) as? NSDictionary,
+           let savedId = dict["deviceId"] as? String {
             deviceId = savedId
         }
 
