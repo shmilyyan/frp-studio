@@ -36,7 +36,7 @@ class ConnectionManager: ObservableObject {
 
     private var lastRemoteClipboardHash: String = ""
     private var lastLocalCopyTime: Date = Date()
-    private var currentDeviceId: String = ""
+    var currentDeviceId: String = ""
 
     // Task 10b: Device identity
     private(set) var deviceId: String = ""
@@ -323,13 +323,28 @@ class ConnectionManager: ObservableObject {
         }
 
         socket?.on("auth:ok") { [weak self] data, ack in
-            self?.logger.info("设备已注册: \(self?.deviceId ?? "")")
-            // Update paired device connection status
-            if let idx = self?.pairedDevices.firstIndex(where: { $0.deviceId == self?.currentDeviceId }) {
-                self?.pairedDevices[idx].isConnected = true
-                self?.pairedDevices[idx].lastSeen = Date()
-                self?.saveDevices()
+            guard let self = self else { return }
+            self.logger.info("设备已注册: \(self.deviceId)")
+            let serverId = self.currentDeviceId
+            if let idx = self.pairedDevices.firstIndex(where: { $0.deviceId == serverId }) {
+                self.pairedDevices[idx].isConnected = true
+                self.pairedDevices[idx].lastSeen = Date()
+            } else if !serverId.isEmpty {
+                // New device from Bonjour/QR — create paired entry
+                let parts = self.baseURL.split(separator: ":")
+                let newDevice = PairedDevice(
+                    deviceId: serverId,
+                    name: "Windows-\(parts.first ?? "?")",
+                    platform: "windows",
+                    isConnected: true,
+                    lastSeen: Date(),
+                    host: parts.count == 2 ? String(parts[0]) : "",
+                    port: parts.count == 2 ? UInt16(parts[1]) ?? 19528 : 19528
+                )
+                self.pairedDevices.append(newDevice)
+                self.logger.info("新设备已配对: \(serverId)")
             }
+            self.saveDevices()
         }
 
         socket?.on("clipboard") { [weak self] data, ack in

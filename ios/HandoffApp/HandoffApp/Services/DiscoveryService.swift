@@ -106,7 +106,8 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
             host: ipString,
             port: UInt16(port),
             platform: info["platform"] ?? "unknown",
-            version: info["version"] ?? "?"
+            version: info["version"] ?? "?",
+            deviceId: info["deviceId"] ?? ""
         )
         if !discoveredDevices.contains(where: { $0.host == ipString && $0.port == port }) {
             DispatchQueue.main.async { [weak self] in
@@ -124,4 +125,5 @@ struct DiscoveredDevice: Identifiable {
     let port: UInt16
     let platform: String
     let version: String
+    let deviceId: String
 }

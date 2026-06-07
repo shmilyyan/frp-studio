@@ -50,12 +50,17 @@ struct ContentView: View {
                     }
                 }
 
-                // Discovered devices
+                // Discovered devices (not yet paired)
                 Section("发现的设备") {
-                    if discoveryService.discoveredDevices.isEmpty {
+                    let unpaired = discoveryService.discoveredDevices.filter { device in
+                        !connectionManager.pairedDevices.contains { paired in
+                            paired.host == device.host && paired.port == device.port
+                        }
+                    }
+                    if unpaired.isEmpty {
                         Text("正在搜索...").foregroundColor(.secondary)
                     }
-                    ForEach(discoveryService.discoveredDevices) { device in
+                    ForEach(unpaired) { device in
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(device.name).font(.subheadline)
@@ -63,6 +68,7 @@ struct ContentView: View {
                             }
                             Spacer()
                             Button("连接") {
+                                connectionManager.currentDeviceId = device.deviceId
                                 connectionManager.baseURL = "\(device.host):\(device.port)"
                                 logger.info("手动连接设备: \(device.name)")
                             }
@@ -88,8 +94,8 @@ struct ContentView: View {
                     }
                 }
 
-                // Clipboard test
-                Section("剪贴板测试") {
+                // Clipboard
+                Section("剪贴板") {
                     Button(action: { connectionManager.pullClipboard() }) {
                         Label("获取 Windows 剪贴板", systemImage: "arrow.down.doc")
                     }
@@ -111,9 +117,10 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+                }
 
-                    Divider()
-
+                // File transfer
+                Section("文件传输") {
                     Button(action: { showFilePicker = true }) {
                         Label("发送文件", systemImage: "doc.badge.arrow.up")
                     }
