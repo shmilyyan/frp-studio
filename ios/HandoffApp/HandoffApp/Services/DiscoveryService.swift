@@ -41,7 +41,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         discoveredDevices.removeAll { $0.name == service.name }
     }
 
-    func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: NSDictionary) {
+    func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
         logger.warn("Bonjour 搜索失败 (重试 \(retryCount + 1)/\(maxRetries)): \(errorDict.allKeys)")
         retryCount += 1
         if retryCount <= maxRetries {
@@ -51,7 +51,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         }
     }
 
-    func netService(_ sender: NetService, didNotResolve errorDict: NSDictionary) {
+    func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
         logger.warn("服务解析失败: \(sender.name) — \(errorDict.allKeys)")
         resolvingServices.remove(sender)
     }

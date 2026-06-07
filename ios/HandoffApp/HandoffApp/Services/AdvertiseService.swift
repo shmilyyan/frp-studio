@@ -58,7 +58,7 @@ class AdvertiseService: NSObject, ObservableObject, NetServiceDelegate {
         logger.info("Bonjour 宣告成功: \(sender.name)")
     }
 
-    func netService(_ sender: NetService, didNotPublish errorDict: NSDictionary) {
+    func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
         logger.warn("Bonjour 宣告失败: \(errorDict.allKeys)")
     }
 
