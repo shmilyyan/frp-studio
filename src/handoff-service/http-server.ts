@@ -368,7 +368,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
     // Parse multipart
     const contentType = req.headers['content-type'] || ''
-    const boundaryMatch = contentType.match(/boundary=(.+)$/)
+    const boundaryMatch = contentType.match(/boundary=([^;\s]+)/)
     if (!boundaryMatch) {
       res.writeHead(400)
       res.end(JSON.stringify({ error: 'multipart/form-data required' }))
@@ -393,11 +393,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       try {
         const body = Buffer.concat(chunks)
         const parts = parseMultipart(body, boundary)
+        console.log(`[HandoffService] multipart parts: ${Array.from(parts.keys()).join(', ')}, size=${body.length}`)
         const deviceId = parts['deviceId']?.toString('utf-8')
         const fileData = parts['file']
         const filename = parts['_filename']?.toString('utf-8') || 'unknown.bin'
 
         if (!deviceId) {
+          console.log(`[HandoffService] deviceId missing, parts keys: ${Array.from(parts.keys()).join(', ')}`)
           res.writeHead(400)
           res.end(JSON.stringify({ error: 'deviceId required' }))
           return

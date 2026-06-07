@@ -399,6 +399,7 @@ class ConnectionManager: ObservableObject {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"deviceId\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(deviceId)\r\n".data(using: .utf8)!)
+        logger.warn("上传 deviceId=\(deviceId) filename=\(filename) size=\(fileData.count)")
 
         guard let fileData = try? Data(contentsOf: fileURL) else {
             logger.error("无法读取文件: \(fileURL.lastPathComponent)")
