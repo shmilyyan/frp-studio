@@ -16,8 +16,14 @@ class AdvertiseService: NSObject, ObservableObject, NetServiceDelegate {
 
         let deviceName = UIDevice.current.name
 
-        // Get deviceId from Keychain (survives app reinstall)
-        let deviceId = KeychainHelper.read(key: "device_identity") ?? ""
+        // Get deviceId from UserDefaults (same key as ConnectionManager)
+        let identityKey = "handoff_identity"
+        var deviceId = ""
+        if let saved = UserDefaults.standard.data(forKey: identityKey),
+           let dict = try? JSONSerialization.jsonObject(with: saved) as? [String: String],
+           let savedId = dict["deviceId"] {
+            deviceId = savedId
+        }
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
 

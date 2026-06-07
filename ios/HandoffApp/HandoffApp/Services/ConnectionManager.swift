@@ -14,14 +14,14 @@ class ConnectionManager: ObservableObject {
     var baseURL: String = "" {
         didSet {
             if !baseURL.isEmpty {
-                _ = KeychainHelper.save(key: "handoff_base_url", value: baseURL)
+                UserDefaults.standard.set(baseURL, forKey: "handoff_baseURL")
                 startPolling()
                 let parts = baseURL.split(separator: ":")
                 if parts.count == 2, let portNum = Int(parts[1]) {
                     connectSocketIO(host: String(parts[0]), port: portNum)
                 }
             } else {
-                KeychainHelper.delete(key: "handoff_base_url")
+                UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
                 stopPolling()
                 socket?.disconnect()
                 socket = nil
@@ -60,15 +60,10 @@ class ConnectionManager: ObservableObject {
     init() {
         loadDevices()
         ensureIdentity()
-        // Restore previous connection (Keychain first, then migrate UserDefaults)
-        if let saved = KeychainHelper.read(key: "handoff_base_url"), !saved.isEmpty {
+        // Restore previous connection
+        if let saved = UserDefaults.standard.string(forKey: "handoff_baseURL"), !saved.isEmpty {
             baseURL = saved
-            logger.warn("已恢复连接 (Keychain): \(saved)")
-        } else if let legacyURL = UserDefaults.standard.string(forKey: "handoff_baseURL"), !legacyURL.isEmpty {
-            baseURL = legacyURL
-            _ = KeychainHelper.save(key: "handoff_base_url", value: legacyURL)
-            UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
-            logger.warn("连接信息已迁移到 Keychain: \(legacyURL)")
+            logger.warn("已恢复连接: \(saved)")
         }
         logger.info("已加载 \(pairedDevices.count) 个已配对设备")
         // Observe clipboard changes via NotificationCenter (avoids @StateObject capture issues)
@@ -82,32 +77,16 @@ class ConnectionManager: ObservableObject {
     private var pendingClipboard: String?
 
     private func saveDevices() {
-        if let data = try? JSONEncoder().encode(pairedDevices),
-           let json = String(data: data, encoding: .utf8) {
-            _ = KeychainHelper.save(key: "handoff_paired_devices", value: json)
-            logger.debug("设备列表已保存 (Keychain): \(pairedDevices.count) 个设备")
+        if let data = try? JSONEncoder().encode(pairedDevices) {
+            UserDefaults.standard.set(data, forKey: storageKey)
+            logger.debug("设备列表已保存: \(pairedDevices.count) 个设备")
         }
     }
 
     private func loadDevices() {
-        // Keychain first
-        if let json = KeychainHelper.read(key: "handoff_paired_devices"),
-           let data = json.data(using: .utf8),
-           let saved = try? JSONDecoder().decode([PairedDevice].self, from: data) {
-            pairedDevices = saved
-            return
-        }
-        // Migrate UserDefaults legacy data
-        if let data = UserDefaults.standard.data(forKey: storageKey),
-           let saved = try? JSONDecoder().decode([PairedDevice].self, from: data) {
-            pairedDevices = saved
-            // Migrate to Keychain
-            if let json = String(data: data, encoding: .utf8) {
-                _ = KeychainHelper.save(key: "handoff_paired_devices", value: json)
-            }
-            UserDefaults.standard.removeObject(forKey: storageKey)
-            logger.info("已配对设备已迁移到 Keychain: \(saved.count) 个")
-        }
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let saved = try? JSONDecoder().decode([PairedDevice].self, from: data) else { return }
+        pairedDevices = saved
     }
 
     func startDiscovery() {
@@ -295,30 +274,23 @@ class ConnectionManager: ObservableObject {
     // MARK: - Task 10b: Device identity + /pair/confirm
 
     private func ensureIdentity() {
-        // 1. 优先从 Keychain 读取（卸载重装后保持不变）
-        if let savedId = KeychainHelper.read(key: "device_identity") {
-            deviceId = savedId
-            logger.info("设备身份已加载 (Keychain): \(deviceId)")
-            return
-        }
-
-        // 2. 兼容旧数据：从 UserDefaults 迁移到 Keychain
         if let saved = UserDefaults.standard.data(forKey: identityKey),
            let dict = try? JSONSerialization.jsonObject(with: saved) as? [String: String],
            let savedDeviceId = dict["deviceId"] {
             deviceId = savedDeviceId
-            _ = KeychainHelper.save(key: "device_identity", value: deviceId)
-            UserDefaults.standard.removeObject(forKey: identityKey)
-            logger.info("设备身份已迁移到 Keychain: \(deviceId)")
+            logger.info("设备身份已加载: \(deviceId)")
             return
         }
 
-        // 3. 全新生成
         var randomBytes = [UInt8](repeating: 0, count: 16)
         _ = SecRandomCopyBytes(kSecRandomDefault, 16, &randomBytes)
         deviceId = randomBytes.map { String(format: "%02x", $0) }.joined()
-        _ = KeychainHelper.save(key: "device_identity", value: deviceId)
-        logger.info("新设备身份已生成 (Keychain): \(deviceId)")
+
+        let identity: [String: String] = ["deviceId": deviceId]
+        if let data = try? JSONSerialization.data(withJSONObject: identity) {
+            UserDefaults.standard.set(data, forKey: identityKey)
+        }
+        logger.info("新设备身份已生成: \(deviceId)")
     }
 
     func connectSocketIO(host: String, port: Int) {
