@@ -158,6 +158,7 @@ declare global {
         notifyConfig(): Promise<{ success: boolean }>
         scanDevices(): Promise<{ success: boolean }>
         setScanInterval(seconds: number): Promise<{ success: boolean }>
+        openFolder(filePath: string): Promise<{ success: boolean }>
         clipboardGet(): Promise<{ payload?: string; error?: string }>
         clipboardSend(text: string): Promise<{ success?: boolean; written?: number; error?: string }>
         connectSSE(): Promise<void>

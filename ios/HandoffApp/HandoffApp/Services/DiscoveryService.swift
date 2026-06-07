@@ -60,6 +60,27 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         defer { resolvingServices.remove(sender) }
         guard let hostName = sender.hostName else { return }
         let port = sender.port
+
+        // Extract IPv4 address from resolved addresses (prefer over hostName for connectivity)
+        var ipString = hostName
+        if let addresses = sender.addresses {
+            for case let addr as NSData in addresses {
+                var storage = sockaddr_storage()
+                addr.getBytes(&storage, length: MemoryLayout<sockaddr_storage>.size)
+                if storage.ss_family == sa_family_t(AF_INET) {
+                    let addr4 = withUnsafePointer(to: &storage) {
+                        $0.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+                    }
+                    var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                    var addr4Copy = addr4
+                    if let ip = inet_ntop(AF_INET, &addr4Copy, &buffer, socklen_t(INET_ADDRSTRLEN)) {
+                        ipString = String(cString: ip)
+                        break
+                    }
+                }
+            }
+        }
+
         // Manually parse TXT record to avoid iOS 26 ObjC→Swift Dictionary bridging crash
         let txtRecord = sender.txtRecordData() ?? Data()
         var info: [String: String] = [:]
@@ -81,15 +102,15 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         }
         let device = DiscoveredDevice(
             name: info["deviceName"] ?? sender.name,
-            host: hostName,
+            host: ipString,
             port: UInt16(port),
             platform: info["platform"] ?? "unknown",
             version: info["version"] ?? "?"
         )
-        if !discoveredDevices.contains(where: { $0.host == hostName && $0.port == port }) {
+        if !discoveredDevices.contains(where: { $0.host == ipString && $0.port == port }) {
             DispatchQueue.main.async { [weak self] in
                 self?.discoveredDevices.append(device)
-                self?.logger.info("设备已发现: \(device.name) @ \(hostName):\(port)")
+                self?.logger.info("设备已发现: \(device.name) @ \(ipString):\(port)")
             }
         }
     }

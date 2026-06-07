@@ -103,6 +103,7 @@ const api = {
     notifyConfig: () => ipcRenderer.invoke('handoff:notify-config'),
     scanDevices: () => ipcRenderer.invoke('handoff:scan-devices'),
     setScanInterval: (seconds: number) => ipcRenderer.invoke('handoff:set-scan-interval', seconds),
+    openFolder: (filePath: string) => ipcRenderer.invoke('handoff:open-folder', filePath),
     clipboardGet: () => ipcRenderer.invoke('handoff:clipboard-get'),
     clipboardSend: (text: string) => ipcRenderer.invoke('handoff:clipboard-send', text),
     connectSSE: () => ipcRenderer.invoke('handoff:connect-sse'),

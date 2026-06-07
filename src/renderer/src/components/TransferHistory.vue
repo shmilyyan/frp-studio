@@ -42,6 +42,14 @@
         <template v-if="column.key === 'created_at'">
           {{ new Date(record.created_at * 1000).toLocaleString() }}
         </template>
+        <template v-if="column.key === 'action'">
+          <a-button
+            v-if="record.type === 'file' && record.status === 'success'"
+            size="small"
+            type="link"
+            @click="openFolder(record.detail)"
+          >打开文件夹</a-button>
+        </template>
       </template>
     </a-table>
   </div>
@@ -60,7 +68,8 @@ const columns = [
   { title: '方向', key: 'direction', dataIndex: 'direction' },
   { title: '详情', key: 'detail', dataIndex: 'detail' },
   { title: '大小', key: 'size', dataIndex: 'size' },
-  { title: '状态', key: 'status', dataIndex: 'status' }
+  { title: '状态', key: 'status', dataIndex: 'status' },
+  { title: '操作', key: 'action', dataIndex: 'action' }
 ]
 
 function formatSize(bytes: number): string {
@@ -90,5 +99,9 @@ async function handleRefresh(): Promise<void> {
 
 async function handleClear(): Promise<void> {
   await store.clearHistory()
+}
+
+async function openFolder(filePath: string): Promise<void> {
+  await window.api.handoff.openFolder(filePath)
 }
 </script>

@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, shell } from 'electron'
 import http from 'http'
 import {
   listTransferHistory,
@@ -106,6 +106,11 @@ export function registerHandoffHandlers(): void {
 
   ipcMain.handle('handoff:set-scan-interval', async (_e, seconds: number) => {
     await httpPost('/internal/set-scan-interval', { interval: Math.max(5, seconds) })
+    return { success: true }
+  })
+
+  ipcMain.handle('handoff:open-folder', async (_e, filePath: string) => {
+    shell.showItemInFolder(filePath)
     return { success: true }
   })
 
