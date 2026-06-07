@@ -6,7 +6,6 @@ struct ContentView: View {
     @EnvironmentObject var logger: DebugLogger
     @State private var showPairing = false
     @State private var showLogs = false
-    @State private var showFilePicker = false
 
     var body: some View {
         NavigationView {
@@ -40,14 +39,6 @@ struct ContentView: View {
                             .frame(width: 10, height: 10)
                         Text(connectionManager.baseURL.isEmpty ? "未配对" : "已配对: \(connectionManager.baseURL)")
                             .font(.subheadline)
-                    }
-                    if !connectionManager.baseURL.isEmpty {
-                        Button(action: {
-                            UIPasteboard.general.string = connectionManager.baseURL
-                            logger.warn("服务端地址已复制: \(connectionManager.baseURL)")
-                        }) {
-                            Label("复制服务端地址", systemImage: "doc.on.doc")
-                        }
                     }
                     if let error = connectionManager.connectionError {
                         HStack {
@@ -118,21 +109,6 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-
-                    Button(action: { showFilePicker = true }) {
-                        Label("发送文件", systemImage: "doc.badge.arrow.up")
-                    }
-                    .disabled(connectionManager.baseURL.isEmpty)
-
-                    if connectionManager.isUploading {
-                        HStack {
-                            ProgressView(value: connectionManager.uploadProgress)
-                                .frame(width: 200)
-                            Text("\(Int(connectionManager.uploadProgress * 100))%")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
                 }
             }
             .refreshable {
@@ -166,11 +142,6 @@ struct ContentView: View {
                         .toolbar {
                             Button("关闭") { showLogs = false }
                         }
-                }
-            }
-            .sheet(isPresented: $showFilePicker) {
-                FilePickerView { url in
-                    connectionManager.uploadFile(url)
                 }
             }
         }
