@@ -1,6 +1,28 @@
 import Foundation
 
 class FolderZipper {
+    /// Zip multiple individual files into one archive
+    static func zip(files: [URL]) -> URL? {
+        guard !files.isEmpty else { return nil }
+        let fm = FileManager.default
+        let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let baseName = files.first!.deletingPathExtension().lastPathComponent
+        let zipURL = cachesDir.appendingPathComponent("\(baseName)_等\(files.count)个文件.zip")
+        if fm.fileExists(atPath: zipURL.path) { try? fm.removeItem(at: zipURL) }
+
+        let filePaths: [(String, URL)] = files.map { ($0.lastPathComponent, $0) }
+        guard let zipData = buildZip(folderName: "", files: filePaths) else { return nil }
+        do {
+            try zipData.write(to: zipURL)
+            DebugLogger.shared.warn("多文件打包完成: \(zipURL.path) (\(files.count) 个文件)")
+            return zipURL
+        } catch {
+            DebugLogger.shared.error("多文件打包失败: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Zip a folder recursively
     static func zip(folderURL: URL) -> URL? {
         let fm = FileManager.default
         let folderName = folderURL.lastPathComponent
@@ -44,7 +66,7 @@ class FolderZipper {
 
         for file in files {
             guard let fileData = try? Data(contentsOf: file.fullURL) else { continue }
-            let entryPath = "\(folderName)/\(file.relativePath)"
+            let entryPath = folderName.isEmpty ? file.relativePath : "\(folderName)/\(file.relativePath)"
             let entryData = entryPath.data(using: .utf8)!
 
             let compSize = UInt32(fileData.count)
