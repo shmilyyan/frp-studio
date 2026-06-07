@@ -60,10 +60,24 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         defer { resolvingServices.remove(sender) }
         guard let hostName = sender.hostName else { return }
         let port = sender.port
-        let txtData = NetService.dictionary(fromTXTRecord: sender.txtRecordData() ?? Data())
+        // Manually parse TXT record to avoid iOS 26 ObjC→Swift Dictionary bridging crash
+        let txtRecord = sender.txtRecordData() ?? Data()
         var info: [String: String] = [:]
-        for (key, value) in txtData {
-            info[key] = String(data: value, encoding: .utf8)
+        var offset = 0
+        let bytes = [UInt8](txtRecord)
+        while offset < bytes.count {
+            let len = Int(bytes[offset])
+            offset += 1
+            guard offset + len <= bytes.count, len > 0 else { break }
+            let entry = Data(bytes[offset..<offset + len])
+            if let entryStr = String(data: entry, encoding: .utf8) {
+                if let eqIdx = entryStr.firstIndex(of: "=") {
+                    let key = String(entryStr[..<eqIdx])
+                    let value = String(entryStr[entryStr.index(after: eqIdx)...])
+                    info[key] = value
+                }
+            }
+            offset += len
         }
         let device = DiscoveredDevice(
             name: info["deviceName"] ?? sender.name,

@@ -24,7 +24,7 @@ struct HandoffApp: App {
             switch phase {
             case .active:
                 AdvertiseService.shared.start()
-                // DiscoveryService.shared.startBrowsing()  // DISABLED for diagnosis
+                DiscoveryService.shared.startBrowsing()
             case .background, .inactive:
                 AdvertiseService.shared.stop()
             @unknown default:

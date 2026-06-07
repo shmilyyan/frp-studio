@@ -118,7 +118,7 @@ struct ContentView: View {
             .onAppear {
                 _ = UIPasteboard.general.string
                 ClipboardService.shared.startMonitoring()
-                // DiscoveryService.shared.startBrowsing()  // DISABLED for diagnosis
+                DiscoveryService.shared.startBrowsing()
                 AdvertiseService.shared.start()
             }
             .navigationTitle("Handoff")
