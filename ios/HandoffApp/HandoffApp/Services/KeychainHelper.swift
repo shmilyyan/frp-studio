@@ -3,7 +3,6 @@ import Security
 
 struct KeychainHelper {
     private static let service = "frp-studio-handoff"
-    private static let accessGroup = "group.com.frp-studio.handoff"
 
     static func save(key: String, value: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
@@ -16,8 +15,7 @@ struct KeychainHelper {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-            kSecAttrAccessGroup as String: accessGroup
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
 
         let status = SecItemAdd(query as CFDictionary, nil)
@@ -29,7 +27,6 @@ struct KeychainHelper {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
-            kSecAttrAccessGroup as String: accessGroup,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -48,8 +45,7 @@ struct KeychainHelper {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecAttrAccessGroup as String: accessGroup
+            kSecAttrAccount as String: key
         ]
         SecItemDelete(query as CFDictionary)
     }

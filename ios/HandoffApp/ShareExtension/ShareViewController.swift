@@ -12,7 +12,6 @@ class ShareViewController: UIViewController {
 
     private var selectedBaseURL: String = ""
     private var deviceId: String = ""
-    private var pairedServers: [(name: String, baseURL: String)] = []
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -73,24 +72,16 @@ class ShareViewController: UIViewController {
     }
 
     private func loadSharedData() {
-        if let url = KeychainHelper.read(key: "handoff_last_active") {
-            selectedBaseURL = url
-        } else if let url = KeychainHelper.read(key: "handoff_base_url") {
-            selectedBaseURL = url
-        }
-        deviceId = KeychainHelper.read(key: "device_identity") ?? ""
-
-        if let json = KeychainHelper.read(key: "handoff_paired_devices"),
-           let data = json.data(using: .utf8),
-           let devices = try? JSONDecoder().decode([PairedDeviceInfo].self, from: data) {
-            pairedServers = devices.map { ($0.name, "\($0.host ?? ""):\($0.port ?? 0)") }
-                .filter { !$0.1.isEmpty && !$0.1.contains(":0") }
-        }
+        // Extension has independent sandbox — use own UserDefaults
+        let extDefaults = UserDefaults(suiteName: nil) ?? UserDefaults.standard
+        selectedBaseURL = extDefaults.string(forKey: "handoff_last_server") ?? ""
+        deviceId = extDefaults.string(forKey: "handoff_device_id") ?? ""
 
         if !selectedBaseURL.isEmpty {
-            let name = pairedServers.first(where: { $0.baseURL == selectedBaseURL })?.name ?? selectedBaseURL
-            devicePicker.setTitle("📤 发送到: \(name)", for: .normal)
+            devicePicker.setTitle("📤 发送到: \(selectedBaseURL)", for: .normal)
             sendButton.isEnabled = true
+        } else {
+            devicePicker.setTitle("输入服务端地址 ▾", for: .normal)
         }
     }
 
@@ -112,15 +103,21 @@ class ShareViewController: UIViewController {
     }
 
     @objc private func showDevicePicker() {
-        guard !pairedServers.isEmpty else { return }
-        let alert = UIAlertController(title: "选择目标设备", message: nil, preferredStyle: .actionSheet)
-        for server in pairedServers {
-            alert.addAction(UIAlertAction(title: server.name, style: .default) { [weak self] _ in
-                self?.selectedBaseURL = server.baseURL
-                self?.devicePicker.setTitle("📤 发送到: \(server.name)", for: .normal)
-                self?.sendButton.isEnabled = true
-            })
+        let alert = UIAlertController(title: "输入服务端地址", message: "例如: 192.168.1.100:19528", preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.placeholder = "192.168.1.100:19528"
+            textField.text = self.selectedBaseURL
+            textField.keyboardType = .URL
         }
+        alert.addAction(UIAlertAction(title: "确定", style: .default) { [weak self] _ in
+            guard let text = alert.textFields?.first?.text, !text.isEmpty else { return }
+            self?.selectedBaseURL = text
+            self?.devicePicker.setTitle("📤 发送到: \(text)", for: .normal)
+            self?.sendButton.isEnabled = true
+            // Remember for next time
+            let extDefaults = UserDefaults(suiteName: nil) ?? UserDefaults.standard
+            extDefaults.set(text, forKey: "handoff_last_server")
+        })
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         present(alert, animated: true)
     }
@@ -151,10 +148,4 @@ class ShareViewController: UIViewController {
     @objc private func cancel() {
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
-}
-
-struct PairedDeviceInfo: Decodable {
-    let name: String
-    let host: String?
-    let port: Int?
 }
