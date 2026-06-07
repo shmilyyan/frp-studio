@@ -64,18 +64,19 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         // Extract IPv4 address from resolved addresses (prefer over hostName for connectivity)
         var ipString = hostName
         if let addresses = sender.addresses {
-            for case let addr as NSData in addresses {
-                var storage = sockaddr_storage()
-                addr.getBytes(&storage, length: MemoryLayout<sockaddr_storage>.size)
-                if storage.ss_family == sa_family_t(AF_INET) {
-                    let addr4 = withUnsafePointer(to: &storage) {
-                        $0.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+            for addrData in addresses {
+                var addr = sockaddr_in()
+                if addrData.count >= MemoryLayout<sockaddr_in>.size {
+                    _ = addrData.withUnsafeBytes { buf in
+                        memcpy(&addr, buf.baseAddress!, MemoryLayout<sockaddr_in>.size)
                     }
-                    var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                    var addr4Copy = addr4
-                    if let ip = inet_ntop(AF_INET, &addr4Copy, &buffer, socklen_t(INET_ADDRSTRLEN)) {
-                        ipString = String(cString: ip)
-                        break
+                    if addr.sin_family == sa_family_t(AF_INET) {
+                        var addr4 = addr.sin_addr
+                        var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                        if inet_ntop(AF_INET, &addr4, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil {
+                            ipString = String(cString: buffer)
+                            break
+                        }
                     }
                 }
             }
