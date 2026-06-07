@@ -13,8 +13,7 @@ struct FilePickerView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker: UIDocumentPickerViewController
         if pickFolders {
-            // iOS 26: use asCopy=true to get a local copy, avoiding remote file provider issues
-            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: true)
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
         } else {
             picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item])
         }
