@@ -10,9 +10,7 @@ struct HandoffApp: App {
     init() {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         logger.info("HandoffApp 启动 v\(version)")
-        _ = UIPasteboard.general.string
-        ClipboardService.shared.startMonitoring()
-        AdvertiseService.shared.start()
+        // Services deferred to ContentView.onAppear to avoid init-time races
     }
 
     var body: some Scene {
