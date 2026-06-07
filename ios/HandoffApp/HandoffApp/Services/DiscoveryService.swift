@@ -109,10 +109,11 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
             version: info["version"] ?? "?",
             deviceId: info["deviceId"] ?? ""
         )
-        if !discoveredDevices.contains(where: { $0.host == ipString && $0.port == port }) {
+        let displayName = info["deviceName"] ?? sender.name
+        if !discoveredDevices.contains(where: { $0.name == displayName }) {
             DispatchQueue.main.async { [weak self] in
                 self?.discoveredDevices.append(device)
-                self?.logger.info("设备已发现: \(device.name) @ \(ipString):\(port)")
+                self?.logger.info("设备已发现: \(displayName) @ \(ipString):\(port)")
             }
         }
     }
