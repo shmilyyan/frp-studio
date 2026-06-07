@@ -1,5 +1,6 @@
 import Foundation
 import AppleArchive
+import System
 
 class FolderZipper {
     static func zip(folderURL: URL) -> URL? {
