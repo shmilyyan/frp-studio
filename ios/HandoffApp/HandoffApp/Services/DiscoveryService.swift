@@ -42,7 +42,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     }
 
     func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
-        logger.warn("Bonjour 搜索失败 (重试 \(retryCount + 1)/\(maxRetries)): \(errorDict.allKeys)")
+        logger.warn("Bonjour 搜索失败 (重试 \(retryCount + 1)/\(maxRetries)): \(errorDict.keys)")
         retryCount += 1
         if retryCount <= maxRetries {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -52,7 +52,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     }
 
     func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
-        logger.warn("服务解析失败: \(sender.name) — \(errorDict.allKeys)")
+        logger.warn("服务解析失败: \(sender.name) — \(errorDict.keys)")
         resolvingServices.remove(sender)
     }
 

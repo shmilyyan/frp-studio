@@ -59,7 +59,7 @@ class AdvertiseService: NSObject, ObservableObject, NetServiceDelegate {
     }
 
     func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
-        logger.warn("Bonjour 宣告失败: \(errorDict.allKeys)")
+        logger.warn("Bonjour 宣告失败: \(errorDict.keys)")
     }
 
     func netServiceDidStop(_ sender: NetService) {
