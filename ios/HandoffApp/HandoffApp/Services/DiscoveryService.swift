@@ -99,7 +99,12 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         // Parse TXT record — try JSON first (Windows format), then DNS-SD key=value (iOS format)
         let txtRecord = sender.txtRecordData() ?? Data()
         var info: [String: String] = [:]
-        if let json = try? JSONSerialization.jsonObject(with: txtRecord) as? NSDictionary {
+        // Strip DNS-SD length prefix byte(s) by finding the JSON start '{'
+        var jsonData = txtRecord
+        if let jsonStart = txtRecord.firstIndex(of: 0x7B) { // '{'
+            jsonData = txtRecord.subdata(in: jsonStart..<txtRecord.count)
+        }
+        if let json = try? JSONSerialization.jsonObject(with: jsonData) as? NSDictionary {
             for (key, value) in json {
                 if let key = key as? String {
                     info[key] = "\(value)"
