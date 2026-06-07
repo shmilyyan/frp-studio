@@ -36,19 +36,3 @@ targets:
         SWIFT_VERSION: "5.0"
     dependencies:
       - package: SocketIO
-
-# ShareExtension target disabled:
-# The Social.framework (SLComposeServiceViewController) has been removed
-# in recent SDKs, causing crashes on launch.
-#  ShareExtension:
-#    type: app-extension
-#    platform: iOS
-#    sources:
-#      - ShareExtension
-#    settings:
-#      base:
-#        INFOPLIST_FILE: ShareExtension/Info.plist
-#        PRODUCT_BUNDLE_IDENTIFIER: com.frper.handoff.extension
-#        GENERATE_INFOPLIST_FILE: "NO"
-#        SWIFT_VERSION: "5.0"
-#    dependencies: []
