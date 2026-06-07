@@ -13,7 +13,8 @@ struct FilePickerView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker: UIDocumentPickerViewController
         if pickFolders {
-            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+            // iOS 26: use asCopy=true to get a local copy, avoiding remote file provider issues
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: true)
         } else {
             picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item])
         }
@@ -24,34 +25,49 @@ struct FilePickerView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onFileSelected: onFileSelected)
+        Coordinator(onFileSelected: onFileSelected, pickFolders: pickFolders)
     }
 
     class Coordinator: NSObject, UIDocumentPickerDelegate {
         let onFileSelected: (URL) -> Void
+        let pickFolders: Bool
 
-        init(onFileSelected: @escaping (URL) -> Void) {
+        init(onFileSelected: @escaping (URL) -> Void, pickFolders: Bool) {
             self.onFileSelected = onFileSelected
+            self.pickFolders = pickFolders
         }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { return }
-            let tempBase = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-            try? FileManager.default.createDirectory(at: tempBase, withIntermediateDirectories: true)
-            let tempURL = tempBase.appendingPathComponent(url.lastPathComponent)
-
-            do {
-                if url.startAccessingSecurityScopedResource() {
-                    defer { url.stopAccessingSecurityScopedResource() }
-                    try FileManager.default.copyItem(at: url, to: tempURL)
-                } else {
-                    try FileManager.default.copyItem(at: url, to: tempURL)
-                }
-                onFileSelected(tempURL)
-            } catch {
-                _ = url.startAccessingSecurityScopedResource()
+            guard url.startAccessingSecurityScopedResource() else {
                 onFileSelected(url)
+                return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+
+            if pickFolders {
+                // iOS 26: Use NSFileCoordinator to prevent permission loss during folder operations
+                let coordinator = NSFileCoordinator()
+                var coordError: NSError?
+                coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordError) { readURL in
+                    // Copy folder to temp for safe compression
+                    let tempBase = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(UUID().uuidString)
+                    try? FileManager.default.createDirectory(at: tempBase, withIntermediateDirectories: true)
+                    let tempURL = tempBase.appendingPathComponent(url.lastPathComponent)
+                    try? FileManager.default.copyItem(at: readURL, to: tempURL)
+                    onFileSelected(tempURL)
+                }
+                if let error = coordError {
+                    DebugLogger.shared.error("文件协调器错误: \(error.localizedDescription)")
+                }
+            } else {
+                let tempBase = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                try? FileManager.default.createDirectory(at: tempBase, withIntermediateDirectories: true)
+                let tempURL = tempBase.appendingPathComponent(url.lastPathComponent)
+                try? FileManager.default.copyItem(at: url, to: tempURL)
+                onFileSelected(tempURL)
             }
         }
 

@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var connectionManager: ConnectionManager
@@ -8,6 +7,7 @@ struct ContentView: View {
     @State private var showPairing = false
     @State private var showLogs = false
     @State private var showFilePicker = false
+    @State private var showFolderPicker = false
 
     var body: some View {
         NavigationView {
@@ -126,9 +126,10 @@ struct ContentView: View {
                     }
                     .disabled(connectionManager.baseURL.isEmpty)
 
-                    Text("发送文件夹: 在 Files 中长按文件夹 → 压缩 → 发送 .zip")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Button(action: { showFolderPicker = true }) {
+                        Label("发送文件夹", systemImage: "folder")
+                    }
+                    .disabled(connectionManager.baseURL.isEmpty)
 
                     if connectionManager.isUploading {
                         HStack {
@@ -176,24 +177,20 @@ struct ContentView: View {
                         }
                 }
             }
-            .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item]) { result in
-                if case .success(let url) = result {
-                    copyToTemp(url) { tempURL in
-                        connectionManager.uploadFile(tempURL)
+            .sheet(isPresented: $showFilePicker) {
+                FilePickerView { url in
+                    connectionManager.uploadFile(url)
+                }
+            }
+            .sheet(isPresented: $showFolderPicker) {
+                FilePickerView(pickFolders: true) { folderURL in
+                    if let zipURL = FolderZipper.zip(folderURL: folderURL) {
+                        connectionManager.uploadFile(zipURL)
+                    } else {
+                        logger.error("文件夹打包失败")
                     }
                 }
             }
         }
     }
-}
-
-private func copyToTemp(_ url: URL, completion: (URL) -> Void) {
-    let tempBase = FileManager.default.temporaryDirectory
-        .appendingPathComponent(UUID().uuidString)
-    try? FileManager.default.createDirectory(at: tempBase, withIntermediateDirectories: true)
-    let tempURL = tempBase.appendingPathComponent(url.lastPathComponent)
-    let secured = url.startAccessingSecurityScopedResource()
-    defer { if secured { url.stopAccessingSecurityScopedResource() } }
-    try? FileManager.default.copyItem(at: url, to: tempURL)
-    completion(tempURL)
 }
