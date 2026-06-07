@@ -6,7 +6,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     @Published var discoveredDevices: [DiscoveredDevice] = []
 
     private var browser: NetServiceBrowser?
-    private var resolvingServices: Set<NetService> = []
+    private var resolvingServiceNames: Set<String> = []
     private var retryCount = 0
     private let maxRetries = 5
     private let logger = DebugLogger.shared
@@ -31,9 +31,11 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     }
 
     func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
-        logger.info("发现服务: \(service.name)")
+        let serviceName = service.name
+        guard !resolvingServiceNames.contains(serviceName) else { return }
+        logger.info("发现服务: \(serviceName)")
+        resolvingServiceNames.insert(serviceName)
         service.delegate = self
-        resolvingServices.insert(service)
         service.resolve(withTimeout: 5)
     }
 
@@ -53,11 +55,11 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
 
     func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
         logger.warn("服务解析失败: \(sender.name) — \(errorDict.keys)")
-        resolvingServices.remove(sender)
+        resolvingServiceNames.remove(sender.name)
     }
 
     func netServiceDidResolveAddress(_ sender: NetService) {
-        defer { resolvingServices.remove(sender) }
+        defer { resolvingServiceNames.remove(sender.name) }
         guard let hostName = sender.hostName else { return }
         let port = sender.port
 
