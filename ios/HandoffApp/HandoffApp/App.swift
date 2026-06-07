@@ -23,10 +23,11 @@ struct HandoffApp: App {
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
-                AdvertiseService.shared.start()
+                // AdvertiseService.shared.start()  // DISABLED for diagnosis
                 DiscoveryService.shared.startBrowsing()
             case .background, .inactive:
-                AdvertiseService.shared.stop()
+                // AdvertiseService.shared.stop()   // DISABLED for diagnosis
+                break
             @unknown default:
                 break
             }

@@ -119,7 +119,7 @@ struct ContentView: View {
                 _ = UIPasteboard.general.string
                 ClipboardService.shared.startMonitoring()
                 DiscoveryService.shared.startBrowsing()
-                AdvertiseService.shared.start()
+                // AdvertiseService.shared.start()  // DISABLED for diagnosis
             }
             .navigationTitle("Handoff")
             .toolbar {
