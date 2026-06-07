@@ -436,12 +436,15 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         if (destPath.toLowerCase().endsWith('.zip')) {
           try {
             const extractDir = destPath.slice(0, -4) // remove .zip
+            const zipPath = destPath  // save before overwriting destPath
             const { execSync } = require('child_process')
             if (process.platform === 'win32') {
-              execSync(`powershell -Command "Expand-Archive -Path '${destPath}' -DestinationPath '${extractDir}' -Force"`, { timeout: 60000 })
+              execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`, { timeout: 60000 })
             } else {
-              execSync(`unzip -o "${destPath}" -d "${extractDir}"`, { timeout: 60000 })
+              execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { timeout: 60000 })
             }
+            // Delete zip after successful extraction
+            if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
             console.log(`[HandoffService] Zip extracted: ${extractDir}`)
             destPath = extractDir // record extraction dir path
           } catch (e) {

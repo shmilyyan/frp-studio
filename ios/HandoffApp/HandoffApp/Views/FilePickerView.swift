@@ -37,7 +37,7 @@ struct FilePickerView: UIViewControllerRepresentable {
                 try? FileManager.default.createDirectory(at: tempBase, withIntermediateDirectories: true)
                 let tempURL = tempBase.appendingPathComponent(url.lastPathComponent)
                 let secured = url.startAccessingSecurityScopedResource()
-                if secured { url.stopAccessingSecurityScopedResource() }
+                defer { if secured { url.stopAccessingSecurityScopedResource() } }
                 if (try? FileManager.default.copyItem(at: url, to: tempURL)) != nil {
                     tempURLs.append(tempURL)
                 }

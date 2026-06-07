@@ -78,9 +78,9 @@ class FolderZipper {
             // Local file header
             var local = Data()
             local.append(le32(0x04034b50))
-            local.append(le16(20)) // version
-            local.append(le16(0))  // flags
-            local.append(le16(0))  // method (store)
+            local.append(le16(20))     // version
+            local.append(le16(0x0800)) // flags (bit 11 = UTF-8 filenames)
+            local.append(le16(0))      // method (store)
             local.append(le16(modTime))
             local.append(le16(0))  // mod date
             local.append(le32(crc))
@@ -96,7 +96,7 @@ class FolderZipper {
             cd.append(le32(0x02014b50))
             cd.append(le16(20))
             cd.append(le16(20))
-            cd.append(le16(0))
+            cd.append(le16(0x0800)) // flags (bit 11 = UTF-8 filenames)
             cd.append(le16(0))
             cd.append(le16(modTime))
             cd.append(le16(0))
