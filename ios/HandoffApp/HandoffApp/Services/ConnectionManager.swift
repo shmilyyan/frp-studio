@@ -408,6 +408,7 @@ class ConnectionManager: ObservableObject {
         let filename = fileURL.lastPathComponent
         logger.warn("上传 deviceId=\(deviceId) filename=\(filename) size=\(fileData.count)")
 
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
         body.append(fileData)
