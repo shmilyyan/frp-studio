@@ -1,4 +1,7 @@
+import fs from 'fs'
 import http from 'http'
+import os from 'os'
+import path from 'path'
 import { getConfig, reloadConfig } from './config'
 
 function getAppVersion(): string {
@@ -349,8 +352,171 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     return
   }
 
+  // ─── File upload endpoint ─────────────────────────────────────────────────
+
+  if (req.method === 'POST' && url === '/file/upload') {
+    const cfg = getConfig()
+    const maxSize = cfg.features.fileMaxSize || 524288000
+
+    // Check Content-Length before receiving
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10)
+    if (contentLength > maxSize) {
+      res.writeHead(413)
+      res.end(JSON.stringify({ error: 'file too large', maxSize }))
+      return
+    }
+
+    // Parse multipart
+    const contentType = req.headers['content-type'] || ''
+    const boundaryMatch = contentType.match(/boundary=(.+)$/)
+    if (!boundaryMatch) {
+      res.writeHead(400)
+      res.end(JSON.stringify({ error: 'multipart/form-data required' }))
+      return
+    }
+    const boundary = boundaryMatch[1].trim()
+
+    const MAX_BODY = maxSize + 1024 * 1024 // max file + 1MB for headers
+    const chunks: Buffer[] = []
+    let bodyLength = 0
+    req.on('data', (chunk: Buffer) => {
+      bodyLength += chunk.length
+      if (bodyLength > MAX_BODY) {
+        res.writeHead(413)
+        res.end(JSON.stringify({ error: 'file too large' }))
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      try {
+        const body = Buffer.concat(chunks)
+        const parts = parseMultipart(body, boundary)
+        const deviceId = parts['deviceId']?.toString('utf-8')
+        const fileData = parts['file']
+        const filename = parts['_filename']?.toString('utf-8') || 'unknown.bin'
+
+        if (!deviceId) {
+          res.writeHead(400)
+          res.end(JSON.stringify({ error: 'deviceId required' }))
+          return
+        }
+
+        if (!fileData || fileData.length === 0) {
+          res.writeHead(400)
+          res.end(JSON.stringify({ error: 'file required' }))
+          return
+        }
+
+        // Save file directly (device check delegated to the client side via paired device list)
+        const downloadDir = cfg.device.downloadDir ||
+          path.join(os.homedir(), 'Downloads', 'FrpTransfer')
+        if (!fs.existsSync(downloadDir)) {
+          fs.mkdirSync(downloadDir, { recursive: true })
+        }
+
+        const safeName = path.basename(filename)
+        let destPath = path.join(downloadDir, safeName)
+        if (fs.existsSync(destPath)) {
+          const ext = path.extname(safeName)
+          const base = path.basename(safeName, ext)
+          const ts = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)
+          destPath = path.join(downloadDir, `${base}_${ts}${ext}`)
+        }
+
+        fs.writeFileSync(destPath, fileData)
+        const fileSize = fileData.length
+
+        // Record transfer via internal HTTP
+        const recordPost = JSON.stringify({
+          deviceId,
+          type: 'file',
+          direction: 'receive',
+          detail: destPath,
+          size: fileSize,
+          status: 'success'
+        })
+        const recordReq = http.request({
+          hostname: '127.0.0.1', port: 19529, path: '/internal/transfer-record',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(recordPost) }
+        }, () => {})
+        recordReq.on('error', () => {})
+        recordReq.write(recordPost)
+        recordReq.end()
+
+        // Notify admin
+        try {
+          const { notifyAdmin } = require('./socket')
+          notifyAdmin('transfer:recorded', {
+            type: 'file', direction: 'receive', detail: destPath, size: fileSize, status: 'success'
+          })
+        } catch {}
+
+        console.log(`[HandoffService] File received: ${destPath} (${fileSize} bytes)`)
+        res.writeHead(200)
+        res.end(JSON.stringify({ success: true, path: destPath, size: fileSize }))
+      } catch (e) {
+        res.writeHead(500)
+        res.end(JSON.stringify({ error: 'internal error' }))
+      }
+    })
+    return
+  }
+
   res.writeHead(404)
   res.end(JSON.stringify({ error: 'not found' }))
+}
+
+function parseMultipart(body: Buffer, boundary: string): Map<string, Buffer> {
+  const result = new Map<string, Buffer>()
+  const boundaryBuf = Buffer.from('--' + boundary)
+
+  let start = body.indexOf(boundaryBuf)
+  if (start < 0) return result
+
+  while (start >= 0) {
+    const partStart = start + boundaryBuf.length
+    // Skip \r\n after boundary
+    let contentStart = partStart
+    if (body[contentStart] === 13) contentStart += 2 // \r\n
+
+    const nextBoundary = body.indexOf(boundaryBuf, contentStart)
+    const partEnd = nextBoundary >= 0 ? nextBoundary : body.length
+    const part = body.slice(contentStart, partEnd)
+
+    // Find end of headers (\r\n\r\n)
+    let headerEnd = -1
+    for (let i = 0; i < part.length - 3; i++) {
+      if (part[i] === 13 && part[i+1] === 10 && part[i+2] === 13 && part[i+3] === 10) {
+        headerEnd = i
+        break
+      }
+    }
+    if (headerEnd < 0) { start = nextBoundary; continue }
+
+    const headerStr = part.slice(0, headerEnd).toString('utf-8')
+    let content = part.slice(headerEnd + 4)
+    // Remove trailing \r\n
+    if (content.length >= 2 && content[content.length - 2] === 13 && content[content.length - 1] === 10) {
+      content = content.slice(0, content.length - 2)
+    }
+
+    // Extract name
+    const nameMatch = headerStr.match(/name="([^"]+)"/)
+    if (nameMatch) {
+      result.set(nameMatch[1], content)
+      // Extract filename
+      const filenameMatch = headerStr.match(/filename="([^"]+)"/)
+      if (filenameMatch) {
+        result.set('_filename', Buffer.from(filenameMatch[1], 'utf-8'))
+      }
+    }
+
+    start = nextBoundary
+  }
+  return result
 }
 
 export function startHTTPServer(): http.Server {
