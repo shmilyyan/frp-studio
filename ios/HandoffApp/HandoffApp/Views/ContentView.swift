@@ -179,14 +179,14 @@ struct ContentView: View {
                 }
             }
             .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item]) { result in
-                if case .success(let urls) = result, let url = urls.first {
+                if case .success(let url) = result {
                     copyToTemp(url) { tempURL in
                         connectionManager.uploadFile(tempURL)
                     }
                 }
             }
             .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
-                if case .success(let urls) = result, let url = urls.first {
+                if case .success(let url) = result {
                     copyToTemp(url) { tempURL in
                         if let zipURL = FolderZipper.zip(folderURL: tempURL) {
                             connectionManager.uploadFile(zipURL)

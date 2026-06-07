@@ -133,10 +133,7 @@ class FolderZipper {
         let year = max(0, (comps.year ?? 2026) - 1980)
         let month = comps.month ?? 1
         let day = comps.day ?? 1
-        let hour = comps.hour ?? 0
-        let minute = comps.minute ?? 0
-        let second = comps.second ?? 0
-        return UInt16(year << 9 | month << 5 | day)  // date part (not using time for simplicity)
+        return UInt16(year << 9 | month << 5 | day)
     }
 
     private static func crc32(_ data: Data) -> UInt32 {
