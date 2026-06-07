@@ -351,8 +351,9 @@ class ConnectionManager: ObservableObject {
 
         socket?.on("auth:ok") { [weak self] data, ack in
             guard let self = self else { return }
-            self.logger.info("设备已注册: \(self.deviceId)")
+            self.logger.info("设备已注册: \(self.deviceId), serverId=\(self.currentDeviceId)")
             let serverId = self.currentDeviceId
+            self.logger.warn("配对检查: serverId='\(serverId)', pairedDevices=\(self.pairedDevices.count)个, baseURL=\(self.baseURL)")
             if let idx = self.pairedDevices.firstIndex(where: { $0.deviceId == serverId }) {
                 self.pairedDevices[idx].isConnected = true
                 self.pairedDevices[idx].lastSeen = Date()
