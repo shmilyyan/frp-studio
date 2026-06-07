@@ -7,6 +7,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
 
     private var browser: NetServiceBrowser?
     private var resolvingServiceNames: Set<String> = []
+    private var resolvingServices: [NetService] = [] // keep strong refs
     private var retryCount = 0
     private let maxRetries = 5
     private let logger = DebugLogger.shared
@@ -19,6 +20,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         logger.info("Bonjour 浏览器启动: _handoff._tcp")
         retryCount = 0
         resolvingServiceNames.removeAll()
+        resolvingServices.removeAll()
         discoveredDevices.removeAll()
         browser?.stop()
         browser = NetServiceBrowser()
@@ -31,6 +33,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         browser?.stop()
         browser = nil
         resolvingServiceNames.removeAll()
+        resolvingServices.removeAll()
     }
 
     func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
@@ -38,6 +41,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
         guard !resolvingServiceNames.contains(serviceName) else { return }
         logger.info("发现服务: \(serviceName)")
         resolvingServiceNames.insert(serviceName)
+        resolvingServices.append(service)
         service.delegate = self
         service.resolve(withTimeout: 5)
     }
@@ -60,10 +64,14 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
         logger.warn("服务解析失败: \(sender.name) — \(errorDict.keys)")
         resolvingServiceNames.remove(sender.name)
+        resolvingServices.removeAll { $0 === sender }
     }
 
     func netServiceDidResolveAddress(_ sender: NetService) {
-        defer { resolvingServiceNames.remove(sender.name) }
+        defer {
+            resolvingServiceNames.remove(sender.name)
+            resolvingServices.removeAll { $0 === sender }
+        }
         guard let hostName = sender.hostName else { return }
         let port = sender.port
 

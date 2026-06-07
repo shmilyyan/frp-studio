@@ -127,7 +127,7 @@ struct ContentView: View {
                     .disabled(connectionManager.baseURL.isEmpty)
 
                     Button(action: { showFolderPicker = true }) {
-                        Label("发送文件夹", systemImage: "folder.badge.arrow.up")
+                        Label("发送文件夹", systemImage: "folder")
                     }
                     .disabled(connectionManager.baseURL.isEmpty)
 
