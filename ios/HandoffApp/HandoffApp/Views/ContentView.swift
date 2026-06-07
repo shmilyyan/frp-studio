@@ -41,6 +41,14 @@ struct ContentView: View {
                         Text(connectionManager.baseURL.isEmpty ? "未配对" : "已配对: \(connectionManager.baseURL)")
                             .font(.subheadline)
                     }
+                    if !connectionManager.baseURL.isEmpty {
+                        Button(action: {
+                            UIPasteboard.general.string = connectionManager.baseURL
+                            logger.warn("服务端地址已复制: \(connectionManager.baseURL)")
+                        }) {
+                            Label("复制服务端地址", systemImage: "doc.on.doc")
+                        }
+                    }
                     if let error = connectionManager.connectionError {
                         HStack {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red)

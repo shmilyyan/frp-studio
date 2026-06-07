@@ -72,10 +72,20 @@ class ShareViewController: UIViewController {
     }
 
     private func loadSharedData() {
-        // Extension has independent sandbox — use own UserDefaults
         let extDefaults = UserDefaults(suiteName: nil) ?? UserDefaults.standard
         selectedBaseURL = extDefaults.string(forKey: "handoff_last_server") ?? ""
-        deviceId = extDefaults.string(forKey: "handoff_device_id") ?? ""
+
+        // Auto-fill from clipboard if no saved server
+        if selectedBaseURL.isEmpty {
+            if let clip = UIPasteboard.general.string {
+                // Match host:port pattern (e.g., 192.168.1.100:19528 or frp.example.com:19528)
+                let pattern = #/[\w.\-]+:\d{4,5}/#
+                if let match = clip.firstMatch(of: pattern) {
+                    selectedBaseURL = String(match.0)
+                    extDefaults.set(selectedBaseURL, forKey: "handoff_last_server")
+                }
+            }
+        }
 
         if !selectedBaseURL.isEmpty {
             devicePicker.setTitle("📤 发送到: \(selectedBaseURL)", for: .normal)
