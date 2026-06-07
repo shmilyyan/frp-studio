@@ -10,6 +10,8 @@ class ConnectionManager: ObservableObject {
     @Published var clipboardContent: String?
     @Published var isConnecting = false
     @Published var connectionError: String?
+    @Published var uploadProgress: Double = 0
+    @Published var isUploading = false
 
     var baseURL: String = "" {
         didSet {
@@ -335,6 +337,7 @@ class ConnectionManager: ObservableObject {
 
         socket?.on(clientEvent: .connect) { [weak self] data, ack in
             self?.logger.warn("socket.io 已连接")
+            _ = KeychainHelper.save(key: "handoff_last_active", value: self?.baseURL ?? "")
             self?.connectionError = nil
             // Auth with device identity
             self?.socket?.emit("auth", [
@@ -404,5 +407,65 @@ class ConnectionManager: ObservableObject {
             DiscoveryService.shared.startBrowsing()
             ClipboardService.shared.checkNow()
         }
+    }
+
+    func uploadFile(_ fileURL: URL) {
+        guard !baseURL.isEmpty else {
+            logger.warn("上传失败: baseURL 为空")
+            return
+        }
+
+        isUploading = true
+        uploadProgress = 0
+
+        guard let uploadURL = URL(string: "http://\(baseURL)/file/upload") else { return }
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "POST"
+
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"deviceId\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(deviceId)\r\n".data(using: .utf8)!)
+
+        guard let fileData = try? Data(contentsOf: fileURL) else {
+            logger.error("无法读取文件: \(fileURL.lastPathComponent)")
+            isUploading = false
+            return
+        }
+        let filename = fileURL.lastPathComponent
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        let task = URLSession.shared.uploadTask(with: request, from: body) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                self?.isUploading = false
+                if let error = error {
+                    self?.logger.error("文件上传失败: \(error.localizedDescription)")
+                } else if let data = data,
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          json["success"] as? Bool == true {
+                    let path = json["path"] as? String ?? filename
+                    let size = json["size"] as? Int ?? fileData.count
+                    self?.logger.warn("文件已发送: \(path) (\(size) bytes)")
+                } else {
+                    self?.logger.error("文件上传失败: 未知响应")
+                }
+            }
+        }
+
+        let observation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            DispatchQueue.main.async {
+                self?.uploadProgress = progress.fractionCompleted
+            }
+        }
+
+        task.resume()
+        logger.warn("正在上传: \(filename) (\(fileData.count) bytes)")
     }
 }
