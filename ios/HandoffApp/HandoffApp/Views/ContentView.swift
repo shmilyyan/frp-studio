@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var showPairing = false
     @State private var showLogs = false
     @State private var showFilePicker = false
+    @State private var showFolderPicker = false
 
     var body: some View {
         NavigationView {
@@ -118,6 +119,11 @@ struct ContentView: View {
                     }
                     .disabled(connectionManager.baseURL.isEmpty)
 
+                    Button(action: { showFolderPicker = true }) {
+                        Label("发送文件夹", systemImage: "folder.badge.arrow.up")
+                    }
+                    .disabled(connectionManager.baseURL.isEmpty)
+
                     if connectionManager.isUploading {
                         HStack {
                             ProgressView(value: connectionManager.uploadProgress)
@@ -167,6 +173,15 @@ struct ContentView: View {
             .sheet(isPresented: $showFilePicker) {
                 FilePickerView { url in
                     connectionManager.uploadFile(url)
+                }
+            }
+            .sheet(isPresented: $showFolderPicker) {
+                FilePickerView(pickFolders: true) { url in
+                    if let zipURL = FolderZipper.zip(folderURL: url) {
+                        connectionManager.uploadFile(zipURL)
+                    } else {
+                        logger.error("文件夹打包失败")
+                    }
                 }
             }
         }

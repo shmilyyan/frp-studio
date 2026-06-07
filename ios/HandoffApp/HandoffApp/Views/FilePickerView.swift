@@ -2,10 +2,20 @@ import SwiftUI
 
 struct FilePickerView: UIViewControllerRepresentable {
     let onFileSelected: (URL) -> Void
+    let pickFolders: Bool
+
+    init(pickFolders: Bool = false, onFileSelected: @escaping (URL) -> Void) {
+        self.pickFolders = pickFolders
+        self.onFileSelected = onFileSelected
+    }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // Use legacy documentTypes API for iOS 26 compatibility
-        let picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .import)
+        let picker: UIDocumentPickerViewController
+        if pickFolders {
+            picker = UIDocumentPickerViewController(documentTypes: ["public.folder"], in: .open)
+        } else {
+            picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .import)
+        }
         picker.delegate = context.coordinator
         return picker
     }
@@ -25,12 +35,11 @@ struct FilePickerView: UIViewControllerRepresentable {
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { return }
-            // Copy to temp to avoid security-scoped resource expiry during upload
-            let tempURL = FileManager.default.temporaryDirectory
+            let tempBase = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
-                .appendingPathComponent(url.lastPathComponent)
-            try? FileManager.default.createDirectory(at: tempURL.deletingLastPathComponent(),
-                                                      withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(at: tempBase, withIntermediateDirectories: true)
+            let tempURL = tempBase.appendingPathComponent(url.lastPathComponent)
+
             do {
                 if url.startAccessingSecurityScopedResource() {
                     defer { url.stopAccessingSecurityScopedResource() }
@@ -40,14 +49,11 @@ struct FilePickerView: UIViewControllerRepresentable {
                 }
                 onFileSelected(tempURL)
             } catch {
-                // Fallback: try direct URL
                 _ = url.startAccessingSecurityScopedResource()
                 onFileSelected(url)
             }
         }
 
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            // User cancelled — no action needed
-        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {}
     }
 }

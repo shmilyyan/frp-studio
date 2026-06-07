@@ -432,6 +432,23 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         fs.writeFileSync(destPath, fileData)
         const fileSize = fileData.length
 
+        // Auto-extract if it's a .zip file (folder transfer)
+        if (destPath.toLowerCase().endsWith('.zip')) {
+          try {
+            const extractDir = destPath.slice(0, -4) // remove .zip
+            const { execSync } = require('child_process')
+            if (process.platform === 'win32') {
+              execSync(`powershell -Command "Expand-Archive -Path '${destPath}' -DestinationPath '${extractDir}' -Force"`, { timeout: 60000 })
+            } else {
+              execSync(`unzip -o "${destPath}" -d "${extractDir}"`, { timeout: 60000 })
+            }
+            console.log(`[HandoffService] Zip extracted: ${extractDir}`)
+            destPath = extractDir // record extraction dir path
+          } catch (e) {
+            console.error(`[HandoffService] Zip extraction failed:`, e)
+          }
+        }
+
         // Record transfer via internal HTTP
         const recordPost = JSON.stringify({
           deviceId,

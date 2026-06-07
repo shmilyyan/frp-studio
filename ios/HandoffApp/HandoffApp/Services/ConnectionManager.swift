@@ -435,6 +435,11 @@ class ConnectionManager: ObservableObject {
                 } else {
                     self?.logger.error("文件上传失败: 无 HTTP 响应")
                 }
+                // Clean up temp file after upload (success or failure)
+                let tempDir = fileURL.deletingLastPathComponent().deletingLastPathComponent()
+                if tempDir.path.contains(NSTemporaryDirectory()) {
+                    try? FileManager.default.removeItem(at: tempDir)
+                }
             }
         }
 
