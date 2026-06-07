@@ -6,6 +6,7 @@ struct ContentView: View {
     @EnvironmentObject var logger: DebugLogger
     @State private var showPairing = false
     @State private var showLogs = false
+    @State private var showFilePicker = false
 
     var body: some View {
         NavigationView {
@@ -109,6 +110,21 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+
+                    Button(action: { showFilePicker = true }) {
+                        Label("发送文件", systemImage: "doc.badge.arrow.up")
+                    }
+                    .disabled(connectionManager.baseURL.isEmpty)
+
+                    if connectionManager.isUploading {
+                        HStack {
+                            ProgressView(value: connectionManager.uploadProgress)
+                                .frame(width: 200)
+                            Text("\(Int(connectionManager.uploadProgress * 100))%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
             }
             .refreshable {
@@ -142,6 +158,11 @@ struct ContentView: View {
                         .toolbar {
                             Button("关闭") { showLogs = false }
                         }
+                }
+            }
+            .sheet(isPresented: $showFilePicker) {
+                FilePickerView { url in
+                    connectionManager.uploadFile(url)
                 }
             }
         }
