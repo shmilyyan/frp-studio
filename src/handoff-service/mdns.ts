@@ -4,6 +4,13 @@ import os from 'os'
 
 let mdns: multicastDns.MulticastDNS | null = null
 
+function getDeviceId(): string {
+  try {
+    const { getDeviceIdentity } = require('./pairing')
+    return getDeviceIdentity().deviceId
+  } catch { return '' }
+}
+
 function getVersion(): string {
   try {
     const fs = require('fs')
@@ -75,6 +82,7 @@ export function startMDNSBroadcast(): void {
         class: 'IN',
         ttl: 120,
         data: Buffer.from(JSON.stringify({
+          deviceId: getDeviceId(),
           deviceName: deviceName,
           platform: 'windows',
           version: getVersion()
@@ -138,6 +146,7 @@ export function startMDNSBroadcast(): void {
         class: 'IN',
         ttl: 120,
         data: Buffer.from(JSON.stringify({
+          deviceId: getDeviceId(),
           deviceName: deviceName,
           platform: 'windows',
           version: getVersion()
