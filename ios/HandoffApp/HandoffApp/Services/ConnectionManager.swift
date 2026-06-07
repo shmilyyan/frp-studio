@@ -132,11 +132,11 @@ class ConnectionManager: ObservableObject {
             return false
         }
 
-        logger.debug("解析 JSON 成功: \(json.keys.joined(separator: ", "))")
+        logger.debug("解析 JSON 成功: \((json.allKeys as? [String])?.joined(separator: ", ") ?? "")")
 
         guard let host = json["host"] as? String else {
             connectionError = "二维码缺少 host 字段"
-            logger.error("JSON 缺少 host, 可用字段: \(json.keys.joined(separator: ", "))")
+            logger.error("JSON 缺少 host, 可用字段: \((json.allKeys as? [String])?.joined(separator: ", ") ?? "")")
             return false
         }
 
@@ -276,7 +276,7 @@ class ConnectionManager: ObservableObject {
     private func ensureIdentity() {
         if let saved = UserDefaults.standard.data(forKey: identityKey),
            let dict = try? JSONSerialization.jsonObject(with: saved) as? NSDictionary,
-           let savedDeviceId = dict?["deviceId"] as? String {
+           let savedDeviceId = dict["deviceId"] as? String {
             deviceId = savedDeviceId
             logger.info("设备身份已加载: \(deviceId)")
             return
