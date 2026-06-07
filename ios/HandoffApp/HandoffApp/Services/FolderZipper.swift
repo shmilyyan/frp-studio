@@ -1,6 +1,5 @@
 import Foundation
 import AppleArchive
-import System
 
 class FolderZipper {
     static func zip(folderURL: URL) -> URL? {
@@ -43,8 +42,8 @@ class FolderZipper {
 
         do {
             try encodeStream.writeDirectoryContents(
-                archiveFromDirectory: FilePath(folderURL.path),
-                fromDirectory: FilePath(folderURL.path))
+                archiveFrom: FilePath(folderURL.path),
+                keySet: ArchiveHeader.FieldKeySet("TYP,PAT,DAT,MTM"))
             DebugLogger.shared.warn("文件夹压缩完成: \(zipURL.path)")
             return zipURL
         } catch {
