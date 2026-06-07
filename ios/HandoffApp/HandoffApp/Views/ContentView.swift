@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var connectionManager: ConnectionManager
@@ -177,20 +178,35 @@ struct ContentView: View {
                         }
                 }
             }
-            .sheet(isPresented: $showFilePicker) {
-                FilePickerView { url in
-                    connectionManager.uploadFile(url)
+            .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item]) { result in
+                if case .success(let urls) = result, let url = urls.first {
+                    copyToTemp(url) { tempURL in
+                        connectionManager.uploadFile(tempURL)
+                    }
                 }
             }
-            .sheet(isPresented: $showFolderPicker) {
-                FilePickerView(pickFolders: true) { url in
-                    if let zipURL = FolderZipper.zip(folderURL: url) {
-                        connectionManager.uploadFile(zipURL)
-                    } else {
-                        logger.error("文件夹打包失败")
+            .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
+                if case .success(let urls) = result, let url = urls.first {
+                    copyToTemp(url) { tempURL in
+                        if let zipURL = FolderZipper.zip(folderURL: tempURL) {
+                            connectionManager.uploadFile(zipURL)
+                        } else {
+                            logger.error("文件夹打包失败")
+                        }
                     }
                 }
             }
         }
     }
+}
+
+private func copyToTemp(_ url: URL, completion: (URL) -> Void) {
+    let tempBase = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString)
+    try? FileManager.default.createDirectory(at: tempBase, withIntermediateDirectories: true)
+    let tempURL = tempBase.appendingPathComponent(url.lastPathComponent)
+    let secured = url.startAccessingSecurityScopedResource()
+    defer { if secured { url.stopAccessingSecurityScopedResource() } }
+    try? FileManager.default.copyItem(at: url, to: tempURL)
+    completion(tempURL)
 }
