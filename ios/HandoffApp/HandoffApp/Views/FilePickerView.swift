@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct FilePickerView: UIViewControllerRepresentable {
     let onFileSelected: (URL) -> Void
@@ -12,9 +13,9 @@ struct FilePickerView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker: UIDocumentPickerViewController
         if pickFolders {
-            picker = UIDocumentPickerViewController(documentTypes: ["public.folder"], in: .open)
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
         } else {
-            picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .import)
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item])
         }
         picker.delegate = context.coordinator
         return picker
