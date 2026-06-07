@@ -1,16 +1,11 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct FilePickerView: UIViewControllerRepresentable {
     let onFileSelected: (URL) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // Use most permissive types for iOS 26 compatibility
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [
-            .item, .data, .content, .archive,
-            .image, .audiovisualContent, .text, .pdf
-        ])
-        picker.allowsMultipleSelection = false
+        // Use legacy documentTypes API for iOS 26 compatibility
+        let picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .import)
         picker.delegate = context.coordinator
         return picker
     }
