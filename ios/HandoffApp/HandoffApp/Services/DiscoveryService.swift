@@ -18,6 +18,8 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     func startBrowsing() {
         logger.info("Bonjour 浏览器启动: _handoff._tcp")
         retryCount = 0
+        resolvingServiceNames.removeAll()
+        discoveredDevices.removeAll()
         browser?.stop()
         browser = NetServiceBrowser()
         browser?.delegate = self
@@ -28,6 +30,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     func stopBrowsing() {
         browser?.stop()
         browser = nil
+        resolvingServiceNames.removeAll()
     }
 
     func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
@@ -41,6 +44,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
 
     func netServiceBrowser(_ browser: NetServiceBrowser, didRemove service: NetService, moreComing: Bool) {
         discoveredDevices.removeAll { $0.name == service.name }
+        resolvingServiceNames.remove(service.name)
     }
 
     func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
