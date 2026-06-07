@@ -7,8 +7,11 @@ let mdns: multicastDns.MulticastDNS | null = null
 function getDeviceId(): string {
   try {
     const { getDeviceIdentity } = require('./pairing')
-    return getDeviceIdentity().deviceId
-  } catch { return '' }
+    return getDeviceIdentity()?.deviceId || ''
+  } catch (e) {
+    console.error('[mDNS] Failed to get deviceId:', e)
+    return ''
+  }
 }
 
 function getVersion(): string {

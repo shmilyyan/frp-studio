@@ -185,7 +185,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
+            .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.directory]) { result in
                 if case .success(let url) = result {
                     copyToTemp(url) { tempURL in
                         if let zipURL = FolderZipper.zip(folderURL: tempURL) {
