@@ -126,7 +126,7 @@ class ConnectionManager: ObservableObject {
             return false
         }
 
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? NSDictionary else {
             connectionError = "二维码内容不是有效的 JSON"
             logger.error("JSON 解析失败")
             return false
@@ -186,7 +186,7 @@ class ConnectionManager: ObservableObject {
                 return
             }
             guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let json = try? JSONSerialization.jsonObject(with: data) as? NSDictionary,
                   let payload = json["payload"] as? String, !payload.isEmpty else { return }
             let hash = json["hash"] as? String ?? ""
             DispatchQueue.main.async {
@@ -240,7 +240,7 @@ class ConnectionManager: ObservableObject {
 
     private func handleMessage(_ text: String) {
         guard let data = text.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let json = try? JSONSerialization.jsonObject(with: data) as? NSDictionary,
               let type = json["type"] as? String else {
             logger.warn("WebSocket 消息解析失败: \(text.prefix(100))")
             return
@@ -275,8 +275,8 @@ class ConnectionManager: ObservableObject {
 
     private func ensureIdentity() {
         if let saved = UserDefaults.standard.data(forKey: identityKey),
-           let dict = try? JSONSerialization.jsonObject(with: saved) as? [String: String],
-           let savedDeviceId = dict["deviceId"] {
+           let dict = try? JSONSerialization.jsonObject(with: saved) as? NSDictionary,
+           let savedDeviceId = dict?["deviceId"] as? String {
             deviceId = savedDeviceId
             logger.info("设备身份已加载: \(deviceId)")
             return
@@ -336,7 +336,7 @@ class ConnectionManager: ObservableObject {
 
         socket?.on("clipboard") { [weak self] data, ack in
             guard let self = self,
-                  let items = data as? [[String: Any]],
+                  let items = data as? [NSDictionary],
                   let msg = items.first else { return }
             let payload = msg["payload"] as? String ?? ""
             let hash = msg["hash"] as? String ?? ""
