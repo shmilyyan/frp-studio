@@ -20,17 +20,16 @@ struct HandoffApp: App {
                 .environmentObject(discoveryService)
                 .environmentObject(logger)
         }
-// scenePhase handler disabled for diagnosis
-//        .onChange(of: scenePhase) { phase in
-//            switch phase {
-//            case .active:
-//                AdvertiseService.shared.start()
-//                DiscoveryService.shared.startBrowsing()
-//            case .background, .inactive:
-//                AdvertiseService.shared.stop()
-//            @unknown default:
-//                break
-//            }
-//        }
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .active:
+                AdvertiseService.shared.start()
+                DiscoveryService.shared.startBrowsing()
+            case .background, .inactive:
+                AdvertiseService.shared.stop()
+            @unknown default:
+                break
+            }
+        }
     }
 }
