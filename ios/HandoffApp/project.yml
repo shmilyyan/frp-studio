@@ -15,7 +15,7 @@ settings:
 packages:
   SocketIO:
     url: https://github.com/socketio/socket.io-client-swift
-    from: 16.1.0
+    exactVersion: "16.1.0"
 
 targets:
   HandoffApp:
@@ -37,15 +37,18 @@ targets:
     dependencies:
       - package: SocketIO
 
-  ShareExtension:
-    type: app-extension
-    platform: iOS
-    sources:
-      - ShareExtension
-    settings:
-      base:
-        INFOPLIST_FILE: ShareExtension/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.frper.handoff.extension
-        GENERATE_INFOPLIST_FILE: "NO"
-        SWIFT_VERSION: "5.0"
-    dependencies: []
+# ShareExtension target disabled:
+# The Social.framework (SLComposeServiceViewController) has been removed
+# in recent SDKs, causing crashes on launch.
+#  ShareExtension:
+#    type: app-extension
+#    platform: iOS
+#    sources:
+#      - ShareExtension
+#    settings:
+#      base:
+#        INFOPLIST_FILE: ShareExtension/Info.plist
+#        PRODUCT_BUNDLE_IDENTIFIER: com.frper.handoff.extension
+#        GENERATE_INFOPLIST_FILE: "NO"
+#        SWIFT_VERSION: "5.0"
+#    dependencies: []
