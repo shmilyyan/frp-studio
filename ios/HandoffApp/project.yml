@@ -21,6 +21,9 @@ targets:
   HandoffApp:
     type: application
     platform: iOS
+    entitlements:
+      keychain-access-groups:
+        - $(AppIdentifierPrefix)group.com.frp-studio.handoff
     sources:
       - path: HandoffApp
         excludes:
@@ -40,8 +43,12 @@ targets:
   ShareExtension:
     type: app-extension
     platform: iOS
+    entitlements:
+      keychain-access-groups:
+        - $(AppIdentifierPrefix)group.com.frp-studio.handoff
     sources:
       - ShareExtension
+      - path: HandoffApp/Services/KeychainHelper.swift
     settings:
       base:
         INFOPLIST_FILE: ShareExtension/Info.plist
