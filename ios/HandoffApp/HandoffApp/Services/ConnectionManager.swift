@@ -417,14 +417,21 @@ class ConnectionManager: ObservableObject {
                 self?.isUploading = false
                 if let error = error {
                     self?.logger.error("文件上传失败: \(error.localizedDescription)")
-                } else if let data = data,
-                          let json = try? JSONSerialization.jsonObject(with: data) as? NSDictionary,
-                          json["success"] as? Bool == true {
-                    let path = json["path"] as? String ?? filename
-                    let size = json["size"] as? Int ?? fileData.count
-                    self?.logger.warn("文件已发送: \(path) (\(size) bytes)")
+                } else if let httpResponse = response as? HTTPURLResponse {
+                    let statusCode = httpResponse.statusCode
+                    let bodyStr = data.flatMap { String(data: $0, encoding: .utf8) } ?? "nil"
+                    if statusCode == 200,
+                       let data = data,
+                       let json = try? JSONSerialization.jsonObject(with: data) as? NSDictionary,
+                       json["success"] as? Bool == true {
+                        let path = json["path"] as? String ?? filename
+                        let size = json["size"] as? Int ?? fileData.count
+                        self?.logger.warn("文件已发送: \(path) (\(size) bytes)")
+                    } else {
+                        self?.logger.error("文件上传失败: HTTP \(statusCode) body=\(bodyStr)")
+                    }
                 } else {
-                    self?.logger.error("文件上传失败: 未知响应")
+                    self?.logger.error("文件上传失败: 无 HTTP 响应")
                 }
             }
         }
