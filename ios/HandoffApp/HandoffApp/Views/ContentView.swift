@@ -7,7 +7,6 @@ struct ContentView: View {
     @State private var showPairing = false
     @State private var showLogs = false
     @State private var showFilePicker = false
-    @State private var showFolderPicker = false
 
     var body: some View {
         NavigationView {
@@ -126,10 +125,9 @@ struct ContentView: View {
                     }
                     .disabled(connectionManager.baseURL.isEmpty)
 
-                    Button(action: { showFolderPicker = true }) {
-                        Label("发送文件夹", systemImage: "folder")
-                    }
-                    .disabled(connectionManager.baseURL.isEmpty)
+                    Text("文件夹: Files App 中长按文件夹 → 压缩 → 发送 .zip")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
 
                     if connectionManager.isUploading {
                         HStack {
@@ -180,15 +178,6 @@ struct ContentView: View {
             .sheet(isPresented: $showFilePicker) {
                 FilePickerView { url in
                     connectionManager.uploadFile(url)
-                }
-            }
-            .sheet(isPresented: $showFolderPicker) {
-                FilePickerView(pickFolders: true) { folderURL in
-                    if let zipURL = FolderZipper.zip(folderURL: folderURL) {
-                        connectionManager.uploadFile(zipURL)
-                    } else {
-                        logger.error("文件夹打包失败")
-                    }
                 }
             }
         }
