@@ -395,15 +395,17 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         console.log(`[HandoffService] /file/upload: body received, size=${body.length}, first 200 bytes=${body.slice(0, 200).toString('hex')}`)
         const parts = parseMultipart(body, boundary)
         console.log(`[HandoffService] /file/upload: parts keys=[${Array.from(parts.keys()).join(', ')}]`)
-        const deviceId = parts['deviceId']?.toString('utf-8')
-        const fileData = parts['file']
-        const filename = parts['_filename']?.toString('utf-8') || 'unknown.bin'
-        // DEBUG: skip deviceId check, always accept
-        const effectiveDeviceId = deviceId || 'unknown-device-id'
-        const effectiveFileData = fileData || (Buffer.from('empty'))
+        const deviceId = parts.get('deviceId')?.toString('utf-8')
+        const fileData = parts.get('file')
+        const filename = parts.get('_filename')?.toString('utf-8') || 'unknown.bin'
 
-        if (!fileData) {
-          console.log(`[HandoffService] /file/upload: file missing, parts: deviceId=${deviceId}, hasFile=${!!fileData}`)
+        if (!deviceId) {
+          res.writeHead(400)
+          res.end(JSON.stringify({ error: 'deviceId required' }))
+          return
+        }
+
+        if (!fileData || fileData.length === 0) {
           res.writeHead(400)
           res.end(JSON.stringify({ error: 'file required' }))
           return
