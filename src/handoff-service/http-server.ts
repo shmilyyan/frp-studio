@@ -47,6 +47,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         port: cfg.server.port,
         downloadDir: cfg.device.downloadDir || '',
         clipboardMaxSize: cfg.features.clipboardMaxSize,
+        fileMaxSize: cfg.features.fileMaxSize,
         frpTunnelEnabled: cfg.frpTunnel.enabled,
         scannerInterval: cfg.scanner.interval
       }

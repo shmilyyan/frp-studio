@@ -140,7 +140,7 @@ declare global {
           uptime: number
           health: {
             status: string; uptime: number; connections: number; version: string
-            config?: { deviceName?: string; port?: number; downloadDir?: string; clipboardMaxSize?: number; frpTunnelEnabled?: boolean; scannerInterval?: number }
+            config?: { deviceName?: string; port?: number; downloadDir?: string; clipboardMaxSize?: number; fileMaxSize?: number; frpTunnelEnabled?: boolean; scannerInterval?: number }
           } | null
         }>
         listDevices(): Promise<Array<{

@@ -27,6 +27,17 @@
       <span style="margin-left: 8px; color: #8c9aab; font-size: 12px;">最小 5 秒，调整即时生效</span>
     </a-form-item>
 
+    <a-form-item label="文件大小限制">
+      <a-input-number
+        v-model:value="fileMaxSizeMB"
+        :min="1"
+        :max="4096"
+        style="width: 100%;"
+        addon-after="MB"
+      />
+      <span style="margin-left: 8px; color: #8c9aab; font-size: 12px;">默认 500 MB</span>
+    </a-form-item>
+
     <a-divider>FRP 隧道</a-divider>
 
     <a-form-item label="启用 FRP 隧道中转">
@@ -50,6 +61,7 @@ const downloadDir = ref('Downloads/FrpTransfer')
 const clipboardMaxSize = ref(1048576)
 const frpTunnelEnabled = ref(false)
 const scanInterval = ref(30)
+const fileMaxSizeMB = ref(500)
 const saved = ref(false)
 
 onMounted(async () => {
@@ -63,6 +75,9 @@ onMounted(async () => {
       clipboardMaxSize.value = c.clipboardMaxSize || 1048576
       frpTunnelEnabled.value = c.frpTunnelEnabled || false
       scanInterval.value = c.scannerInterval || 30
+      if (c.fileMaxSize) {
+        fileMaxSizeMB.value = Math.round(c.fileMaxSize / 1048576)
+      }
     }
   } catch { /* service may not be running */ }
 })

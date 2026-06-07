@@ -14,6 +14,7 @@ export interface HandoffConfig {
     clipboardSync: boolean
     fileTransfer: boolean
     clipboardMaxSize: number
+    fileMaxSize: number  // bytes, default 500MB (524288000)
   }
   frpTunnel: {
     enabled: boolean
@@ -28,7 +29,7 @@ export interface HandoffConfig {
 const defaultConfig: HandoffConfig = {
   server: { port: 19528, bindAddress: '0.0.0.0' },
   device: { name: 'My-Windows-PC', downloadDir: '' },
-  features: { clipboardSync: true, fileTransfer: true, clipboardMaxSize: 1048576 },
+  features: { clipboardSync: true, fileTransfer: true, clipboardMaxSize: 1048576, fileMaxSize: 524288000 },
   frpTunnel: { enabled: false, nodeId: null, remotePort: 19528 },
   scanner: { interval: 30 }
 }
