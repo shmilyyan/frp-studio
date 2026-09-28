@@ -40,6 +40,7 @@ export function connectClient(onEvent: (event: string, data: unknown) => void): 
   socket.on('device:paired', (data) => onEvent('device:paired', data))
   socket.on('device:revoked', (data) => onEvent('device:revoked', data))
   socket.on('transfer:recorded', (data) => onEvent('transfer:recorded', data))
+  socket.on('clipboard:delivery', (data) => onEvent('clipboard:delivery', data))
   socket.on('config:reloaded', () => onEvent('config:reloaded', {}))
   socket.on('service:error', (data) => onEvent('service:error', data))
   socket.on('peer:disconnected', (data) => onEvent('peer:disconnected', data))

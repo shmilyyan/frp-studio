@@ -107,27 +107,22 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    Button(action: { connectionManager.pullClipboard(from: connectionManager.selectedDeviceId) }) {
+                    Button(action: { connectionManager.pullClipboard(from: connectionManager.selectedDeviceId, manual: true) }) {
                         Label("获取所选 Windows 剪贴板", systemImage: "arrow.down.doc")
                     }
                     .disabled(connectionManager.connectionStates[connectionManager.selectedDeviceId] != .connected)
 
                     Button(action: {
                         if let text = UIPasteboard.general.string, !text.isEmpty {
-                            connectionManager.sendClipboard(text)
+                            connectionManager.sendClipboard(text, manual: true)
                         } else {
-                            logger.warn("iOS 剪贴板为空")
+                            connectionManager.sendClipboard("", manual: true)
                         }
                     }) {
                         Label("发送到所有已连接设备", systemImage: "arrow.up.doc")
                     }
                     .disabled(!connectionManager.connectionStates.values.contains(.connected))
 
-                    if let content = connectionManager.clipboardContent, !content.isEmpty {
-                        Text("最新剪贴板: \(content.prefix(100))")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
                 }
 
                 // File transfer
@@ -164,6 +159,26 @@ struct ContentView: View {
                 AdvertiseService.shared.start()
             }
             .navigationTitle("Handoff")
+            .safeAreaInset(edge: .bottom) {
+                if let feedback = connectionManager.clipboardFeedback {
+                    Text(feedback.message)
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(feedback.isError ? Color.red : Color.blue)
+                        .cornerRadius(10)
+                        .padding(.bottom, 8)
+                }
+            }
+            .onChange(of: connectionManager.clipboardFeedback?.id) { id in
+                guard let id = id else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    if connectionManager.clipboardFeedback?.id == id {
+                        connectionManager.clipboardFeedback = nil
+                    }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {

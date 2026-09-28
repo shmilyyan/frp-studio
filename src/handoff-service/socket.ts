@@ -2,8 +2,38 @@ import { Server as SocketIOServer, Socket } from 'socket.io'
 import type { Server as HTTPServer } from 'http'
 import http from 'http'
 import { getDeviceIdentity } from './pairing'
+import { getLatestClipboard, writeClipboard } from './clipboard'
 
 let io: SocketIOServer | null = null
+type ClipboardAck = { success: boolean; transferId: string; error?: string; written?: number }
+type OutboundTransfer = { size: number; targetSocketIds: Set<string>; acknowledgedDeviceIds: Set<string>; createdAt: number }
+const outboundTransfers = new Map<string, OutboundTransfer>()
+const receivedTransfers = new Map<string, ClipboardAck>()
+const transferLifetimeMs = 5 * 60 * 1000
+
+function pruneTransfers(): void {
+  const oldest = Date.now() - transferLifetimeMs
+  for (const [id, transfer] of outboundTransfers) {
+    if (transfer.createdAt < oldest) outboundTransfers.delete(id)
+  }
+  // Map insertion order provides a bounded cache for retries after a lost ACK.
+  while (receivedTransfers.size > 500) receivedTransfers.delete(receivedTransfers.keys().next().value!)
+}
+
+function sendClipboardToPeers(payload: string, hash: string, transferId: string, exceptSocketId?: string): void {
+  if (!io) return
+  pruneTransfers()
+  const targets = new Set<string>()
+  for (const peer of io.sockets.sockets.values()) {
+    if (peer.data.authenticated && peer.data.role === 'peer' && peer.id !== exceptSocketId) {
+      targets.add(peer.id)
+      peer.emit('clipboard', { payload, hash, transferId, sourceId: 'server', timestamp: Date.now() })
+    }
+  }
+  if (targets.size) outboundTransfers.set(transferId, {
+    size: payload.length, targetSocketIds: targets, acknowledgedDeviceIds: new Set(), createdAt: Date.now()
+  })
+}
 
 export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
   io = new SocketIOServer(httpServer, {
@@ -42,6 +72,7 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
         socket.data.authenticated = true
         socket.data.role = 'peer'
         socket.data.deviceId = msg.deviceId
+        socket.data.deviceName = msg.deviceName
         socket.join('peers')
 
         // Register device in SQLite via internal HTTP
@@ -95,22 +126,69 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
       socket.disconnect()
     })
 
-    // Clipboard from iOS peer → broadcast to admin + other peers
-    socket.on('clipboard', (msg: { payload: string; hash?: string }) => {
-      if (!socket.data.authenticated) return
-      const { writeClipboard, getLatestClipboard } = require('./clipboard')
-      if (msg.payload && typeof msg.payload === 'string') {
-        writeClipboard(msg.payload)
-        const { hash } = getLatestClipboard()
-        socket.to('admin').emit('clipboard', { payload: msg.payload, hash, sourceId: socket.id })
-        socket.to('peers').emit('clipboard', { payload: msg.payload, hash, sourceId: socket.id })
-        console.log(`[socket.io] Clipboard from ${socket.id.slice(0,8)} (${msg.payload.length} chars)`)
+    // ACK only after Windows has written the clipboard. A retry with the same
+    // transfer ID returns its prior ACK without writing or announcing twice.
+    socket.on('clipboard', (msg: { payload?: unknown; transferId?: unknown }, ack?: (result: ClipboardAck) => void) => {
+      const transferId = typeof msg?.transferId === 'string' ? msg.transferId : ''
+      const payload = typeof msg?.payload === 'string' ? msg.payload : ''
+      const fail = (error: string): void => { ack?.({ success: false, transferId, error }) }
+      if (!socket.data.authenticated || socket.data.role !== 'peer') return fail('authentication required')
+      if (!transferId || !payload) return fail('invalid clipboard payload')
+      const key = `${socket.data.deviceId}:${transferId}`
+      const prior = receivedTransfers.get(key)
+      if (prior) { ack?.(prior); return }
+      try {
+        writeClipboard(payload)
+        const { hash, transferId: outgoingId } = getLatestClipboard()
+        const result: ClipboardAck = { success: true, transferId, written: payload.length }
+        receivedTransfers.set(key, result)
+        pruneTransfers()
+        ack?.(result)
+        notifyAdmin('clipboard:delivery', {
+          transferId, deviceId: socket.data.deviceId, deviceName: socket.data.deviceName,
+          direction: 'receive', success: true, size: payload.length
+        })
+        sendClipboardToPeers(payload, hash, outgoingId, socket.id)
+        console.log(`[socket.io] Clipboard from ${socket.id.slice(0, 8)} (${payload.length} chars)`)
+      } catch (error) {
+        fail(error instanceof Error ? error.message : 'clipboard write failed')
       }
     })
 
+    socket.on('clipboard:received', (msg: { transferId?: unknown; deviceId?: unknown; success?: unknown; error?: unknown }) => {
+      if (!socket.data.authenticated || socket.data.role !== 'peer' || msg?.deviceId !== socket.data.deviceId) return
+      if (typeof msg.transferId !== 'string' || typeof msg.success !== 'boolean') return
+      let transfer = outboundTransfers.get(msg.transferId)
+      // A device-targeted HTTP pull reads the same latest transfer ID but was
+      // not part of the original push (for example, it reconnected later).
+      if (getLatestClipboard().transferId === msg.transferId) {
+        if (!transfer) {
+          transfer = { size: getLatestClipboard().payload.length,
+            targetSocketIds: new Set(), acknowledgedDeviceIds: new Set(), createdAt: Date.now() }
+          outboundTransfers.set(msg.transferId, transfer)
+        }
+        transfer.targetSocketIds.add(socket.id)
+      }
+      if (!transfer || !transfer.targetSocketIds.has(socket.id) || transfer.acknowledgedDeviceIds.has(socket.data.deviceId)) return
+      transfer.acknowledgedDeviceIds.add(socket.data.deviceId)
+      notifyAdmin('clipboard:delivery', {
+        transferId: msg.transferId, deviceId: socket.data.deviceId, deviceName: socket.data.deviceName,
+        direction: 'send', success: msg.success,
+        error: msg.success ? undefined : (typeof msg.error === 'string' ? msg.error : 'clipboard write failed'),
+        size: transfer.size
+      })
+    })
+
     socket.on('clipboard:latest', () => {
-      const { getLatestClipboard } = require('./clipboard')
-      socket.emit('clipboard', getLatestClipboard())
+      const latest = getLatestClipboard()
+      if (socket.data.role !== 'peer' || !latest.payload) return
+      const transfer = outboundTransfers.get(latest.transferId) ?? {
+        size: latest.payload.length, targetSocketIds: new Set<string>(),
+        acknowledgedDeviceIds: new Set<string>(), createdAt: Date.now()
+      }
+      transfer.targetSocketIds.add(socket.id)
+      outboundTransfers.set(latest.transferId, transfer)
+      socket.emit('clipboard', { ...latest, sourceId: 'server', timestamp: Date.now() })
     })
 
     socket.on('file:offer', (msg) => {
@@ -149,9 +227,8 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
 }
 
 // For clipboard watcher: broadcast Windows clipboard changes to all peers
-export function broadcastClipboard(payload: string, hash: string): void {
-  if (!io) return
-  io.to('peers').emit('clipboard', { payload, hash, sourceId: 'server', timestamp: Date.now() })
+export function broadcastClipboard(payload: string, hash: string, transferId: string): void {
+  sendClipboardToPeers(payload, hash, transferId)
 }
 
 // For notifying admin of events

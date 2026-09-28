@@ -28,7 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useHandoffStore } from '../stores/handoff'
 import DeviceList from '../components/DeviceList.vue'
 import TransferHistory from '../components/TransferHistory.vue'
@@ -47,10 +47,5 @@ watch(activeTab, (tab) => {
 onMounted(async () => {
   await store.fetchServiceStatus()
   await store.fetchDevices()
-  store.connectSSE()
-})
-
-onUnmounted(() => {
-  store.disconnectSSE()
 })
 </script>

@@ -47,10 +47,8 @@ async function main(): Promise<void> {
 
   // Start clipboard watcher (broadcasts changes to all connected peers)
   const { startClipboardWatcher } = await import('./clipboard')
-  startClipboardWatcher((content) => {
-    const { getLatestClipboard } = require('./clipboard')
-    const { hash } = getLatestClipboard()
-    broadcastClipboard(content, hash)
+  startClipboardWatcher((content, hash, transferId) => {
+    broadcastClipboard(content, hash, transferId)
   })
 
   console.log('[HandoffService] All modules started')

@@ -32,6 +32,16 @@ export interface TransferRecord {
   created_at: number
 }
 
+export interface ClipboardDelivery {
+  transferId: string
+  deviceId: string
+  deviceName: string
+  direction: 'send' | 'receive'
+  success: boolean
+  error?: string
+  size: number
+}
+
 export const useHandoffStore = defineStore('handoff', () => {
   const serviceStatus = ref<'running' | 'stopped'>('stopped')
   const serviceUptime = ref(0)
@@ -41,6 +51,8 @@ export const useHandoffStore = defineStore('handoff', () => {
   const transferHistory = ref<TransferRecord[]>([])
   const sseCleanup = ref<(() => void) | null>(null)
   const onlineDevices = ref<Record<string, 'online' | 'offline'>>({})
+  const latestClipboardDelivery = ref<{ sequence: number; result: ClipboardDelivery } | null>(null)
+  let deliverySequence = 0
 
   const isRunning = computed(() => serviceStatus.value === 'running')
 
@@ -93,6 +105,7 @@ export const useHandoffStore = defineStore('handoff', () => {
   }
 
   function connectSSE(): void {
+    if (sseCleanup.value) return
     window.api.handoff.connectSSE()
     const clean1 = window.api.handoff.onEvent(({ event, data }) => {
       if (event === 'connected') {
@@ -108,6 +121,8 @@ export const useHandoffStore = defineStore('handoff', () => {
       } else if (event === 'transfer:recorded') {
         const record = data as TransferRecord
         transferHistory.value.unshift(record)
+      } else if (event === 'clipboard:delivery') {
+        latestClipboardDelivery.value = { sequence: ++deliverySequence, result: data as ClipboardDelivery }
       } else if (event === 'peer:connected') {
         const { deviceId } = data as { deviceId: string }
         onlineDevices.value[deviceId] = 'online'
@@ -157,7 +172,7 @@ export const useHandoffStore = defineStore('handoff', () => {
     fetchDevices, deleteDevice, generatePairing,
     fetchTransferHistory, clearHistory,
     connectSSE, disconnectSSE,
-    onlineDevices,
+    onlineDevices, latestClipboardDelivery,
     scanDevices, setScanInterval
   }
 })
