@@ -1,6 +1,7 @@
 import { Server as SocketIOServer, Socket } from 'socket.io'
 import type { Server as HTTPServer } from 'http'
 import http from 'http'
+import { getDeviceIdentity } from './pairing'
 
 let io: SocketIOServer | null = null
 
@@ -80,7 +81,11 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
           deviceId: msg.deviceId,
           ip: socket.handshake.address
         })
-        socket.emit('auth:ok', { role: 'peer', deviceId: msg.deviceId })
+        socket.emit('auth:ok', {
+          role: 'peer',
+          deviceId: msg.deviceId,
+          serverDeviceId: getDeviceIdentity().deviceId
+        })
         console.log(`[socket.io] Peer registered: ${msg.deviceName} (${msg.deviceId})`)
         return
       }

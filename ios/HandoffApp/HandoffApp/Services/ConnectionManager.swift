@@ -13,8 +13,10 @@ class ConnectionManager: ObservableObject {
     @Published private(set) var connectionStates: [String: DeviceConnectionState] = [:]
     @Published var selectedDeviceId: String = "" {
         didSet {
-            guard let device = pairedDevices.first(where: { $0.deviceId == selectedDeviceId }) else { return }
-            baseURL = "\(device.host):\(device.port)"
+            guard let device = pairedDevices.first(where: {
+                $0.deviceId == selectedDeviceId && $0.platform.lowercased() == "windows"
+            }) else { return }
+            baseURL = device.host.isEmpty ? "" : "\(device.host):\(device.port)"
             currentDeviceId = device.deviceId
         }
     }
@@ -40,6 +42,7 @@ class ConnectionManager: ObservableObject {
         let port: UInt16
     }
     private var sockets: [String: DeviceSocket] = [:]
+    private var pendingManualDeviceIds: Set<String> = []
 
     private var lastRemoteClipboardHash: String = ""
     private var lastLocalCopyTime: Date = Date()
@@ -68,29 +71,41 @@ class ConnectionManager: ObservableObject {
     init() {
         loadDevices()
         ensureIdentity()
+        var restoredURL = ""
         if let saved = KeychainHelper.read(key: "handoff_base_url"), !saved.isEmpty {
-            baseURL = saved
+            restoredURL = saved
         } else if let legacyURL = UserDefaults.standard.string(forKey: "handoff_baseURL"), !legacyURL.isEmpty {
-            baseURL = legacyURL
-            UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
-            logger.warn("连接信息已迁移到 Keychain: \(legacyURL)")
+            restoredURL = legacyURL
+            if KeychainHelper.save(key: "handoff_base_url", value: legacyURL) {
+                UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
+                logger.warn("连接信息已迁移到 Keychain: \(legacyURL)")
+            } else {
+                logger.error("连接信息迁移到 Keychain 失败，保留旧记录")
+            }
         }
         // Older paired records may not contain an endpoint. The single saved URL
         // can safely be assigned when exactly one Windows server was paired.
         let windowsIndices = pairedDevices.indices.filter {
             pairedDevices[$0].platform.lowercased() == "windows"
         }
-        let endpoint = baseURL.split(separator: ":")
+        let endpoint = restoredURL.split(separator: ":")
         if windowsIndices.count == 1, endpoint.count == 2,
            let port = UInt16(endpoint[1]), pairedDevices[windowsIndices[0]].host.isEmpty {
             pairedDevices[windowsIndices[0]].host = String(endpoint[0])
             pairedDevices[windowsIndices[0]].port = port
             saveDevices()
         }
-        if let savedSelection = pairedDevices.first(where: { "\($0.host):\($0.port)" == baseURL }) {
-            selectedDeviceId = savedSelection.deviceId
-        } else if let first = pairedDevices.first {
-            selectedDeviceId = first.deviceId
+        let selected = pairedDevices.first(where: {
+            $0.platform.lowercased() == "windows" && "\($0.host):\($0.port)" == restoredURL
+        }) ?? pairedDevices.first(where: { $0.platform.lowercased() == "windows" })
+        if let selected = selected {
+            selectedDeviceId = selected.deviceId
+            currentDeviceId = selected.deviceId
+            if !selected.host.isEmpty {
+                baseURL = "\(selected.host):\(selected.port)"
+                _ = KeychainHelper.save(key: "handoff_base_url", value: baseURL)
+                startPolling()
+            }
         }
         for index in pairedDevices.indices {
             pairedDevices[index].isConnected = false
@@ -375,17 +390,11 @@ class ConnectionManager: ObservableObject {
 
     func updateDiscoveredDevice(_ device: DiscoveredDevice) {
         guard !device.deviceId.isEmpty, device.platform.lowercased() == "windows",
-              let index = pairedDevices.firstIndex(where: {
+              pairedDevices.contains(where: {
                   $0.deviceId == device.deviceId && $0.platform.lowercased() == "windows"
               }) else { return }
-        let changed = pairedDevices[index].host != device.host || pairedDevices[index].port != device.port
-        if changed {
-            pairedDevices[index].host = device.host
-            pairedDevices[index].port = device.port
-            pairedDevices[index].lastSeen = Date()
-            saveDevices()
-            if selectedDeviceId == device.deviceId { selectedDeviceId = device.deviceId }
-        }
+        // A Bonjour TXT record only proposes an endpoint. Persist it after the
+        // server confirms its own device ID through the socket handshake.
         connectPairedDevice(device.deviceId, host: device.host, port: device.port)
     }
 
@@ -397,9 +406,10 @@ class ConnectionManager: ObservableObject {
         if !pairedDevices.contains(where: { $0.deviceId == device.deviceId }) {
             pairedDevices.append(PairedDevice(deviceId: device.deviceId, name: device.name,
                                               platform: "windows", host: device.host, port: device.port))
-            saveDevices()
+            pendingManualDeviceIds.insert(device.deviceId)
+        } else {
+            selectedDeviceId = device.deviceId
         }
-        selectedDeviceId = device.deviceId
         updateDiscoveredDevice(device)
     }
 
@@ -426,7 +436,7 @@ class ConnectionManager: ObservableObject {
         }
         if let existing = sockets[serverId] {
             if existing.host == host && existing.port == port {
-                if existing.socket.status == .disconnected && connectionStates[serverId] == .offline {
+                if existing.socket.status == .disconnected {
                     setState(.reconnecting, for: serverId)
                     existing.socket.connect()
                 }
@@ -459,9 +469,33 @@ class ConnectionManager: ObservableObject {
             ])
         }
 
-        socket.on("auth:ok") { [weak self] _, _ in
+        socket.on("auth:ok") { [weak self] data, _ in
             guard let self = self else { return }
+            guard let confirmation = data.first as? [String: Any],
+                  let confirmedServerId = confirmation["serverDeviceId"] as? String,
+                  confirmedServerId == serverId else {
+                self.connectionError = "服务端身份不匹配: \(host):\(port)"
+                self.logger.error("拒绝服务端身份不匹配的连接: \(serverId) @ \(host):\(port)")
+                socket.removeAllHandlers()
+                socket.disconnect()
+                self.sockets.removeValue(forKey: serverId)
+                self.setState(.offline, for: serverId)
+                if self.pendingManualDeviceIds.remove(serverId) != nil {
+                    self.pairedDevices.removeAll { $0.deviceId == serverId }
+                    self.connectionStates.removeValue(forKey: serverId)
+                }
+                return
+            }
+            if let index = self.pairedDevices.firstIndex(where: { $0.deviceId == serverId }),
+               self.pairedDevices[index].host != host || self.pairedDevices[index].port != port {
+                self.pairedDevices[index].host = host
+                self.pairedDevices[index].port = port
+                if self.selectedDeviceId == serverId { self.selectedDeviceId = serverId }
+            }
             self.setState(.connected, for: serverId)
+            if self.pendingManualDeviceIds.remove(serverId) != nil {
+                self.selectedDeviceId = serverId
+            }
             self.logger.info("设备已注册: \(self.deviceId), serverId=\(serverId)")
             if let pending = self.pendingClipboard.removeValue(forKey: serverId) {
                 socket.emit("clipboard", ["payload": pending])
