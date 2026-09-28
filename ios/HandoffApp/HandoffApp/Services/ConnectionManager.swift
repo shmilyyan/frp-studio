@@ -326,19 +326,9 @@ class ConnectionManager: ObservableObject {
         }
         let receiptKey = "\(serverId):\(transferId)"
         let currentContent = UIPasteboard.general.string
-        if !transferId.isEmpty && receiptOutcomes[receiptKey] == true {
-            if currentContent == content {
-                // A lost confirmation can be repeated without another write or prompt.
-                emitClipboardReceipt(true, transferId: transferId, to: serverId)
-                if manual { showClipboardFeedback("剪贴板已是 \(name) 的最新内容", for: serverId, kind: "receive", transferId: transferId) }
-            } else if manual {
-                showClipboardFeedback("剪贴板内容已改变，请重新获取", for: serverId, kind: "receive", transferId: transferId)
-            }
-            return
-        }
         if currentContent == content {
             // Content can already match because another Windows service delivered
-            // it. This service still receives its own accurate receipt.
+            // it. Confirm this server's receipt without another pasteboard write.
             lastRemoteClipboardHash = hash
             clipboardContent = content
             if !transferId.isEmpty { rememberClipboardReceipt(true, key: receiptKey) }
@@ -353,8 +343,11 @@ class ConnectionManager: ObservableObject {
             if manual { showClipboardFeedback("刚复制了本机内容，请稍后重试", for: serverId, kind: "receive", transferId: transferId) }
             return
         }
-        if hash == lastRemoteClipboardHash {
-            if manual { showClipboardFeedback("剪贴板内容已改变，请重新获取", for: serverId, kind: "receive", transferId: transferId) }
+        // An explicit pull represents a new user request. Once the local-copy
+        // guard expires, it may restore an older server value. Socket pushes
+        // still ignore transfers and hashes already received automatically.
+        if !manual && ((!transferId.isEmpty && receiptOutcomes[receiptKey] == true) ||
+                       hash == lastRemoteClipboardHash) {
             return
         }
         ClipboardService.shared.setClipboard(content)
