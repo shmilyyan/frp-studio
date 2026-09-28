@@ -171,6 +171,7 @@ export function startMDNSBroadcast(): void {
       if (record.type === 'PTR' && name === '_handoff._tcp.local' &&
           typeof record.data === 'string') {
         const instance = normalized(record.data)
+        changedNames.add(instance)
         if (!services.has(instance) || !metadata.has(instance)) {
           mdns?.query({ questions: [
             { name: record.data, type: 'SRV' },
