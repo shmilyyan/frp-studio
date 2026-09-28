@@ -123,6 +123,11 @@ struct ContentView: View {
                     }
                     .disabled(!connectionManager.connectionStates.values.contains(.connected))
 
+                    if let content = connectionManager.clipboardContent, !content.isEmpty {
+                        Text("最新剪贴板: \(content.prefix(100))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 // File transfer
@@ -160,23 +165,26 @@ struct ContentView: View {
             }
             .navigationTitle("Handoff")
             .safeAreaInset(edge: .bottom) {
-                if let feedback = connectionManager.clipboardFeedback {
-                    Text(feedback.message)
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(feedback.isError ? Color.red : Color.blue)
-                        .cornerRadius(10)
-                        .padding(.bottom, 8)
-                }
-            }
-            .onChange(of: connectionManager.clipboardFeedback?.id) { id in
-                guard let id = id else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                    if connectionManager.clipboardFeedback?.id == id {
-                        connectionManager.clipboardFeedback = nil
+                if !connectionManager.clipboardFeedback.isEmpty {
+                    ScrollView {
+                        VStack(spacing: 6) {
+                            ForEach(connectionManager.clipboardFeedback.values.sorted {
+                                $0.deviceId < $1.deviceId
+                            }) { feedback in
+                                Text(feedback.message)
+                                    .font(.subheadline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(feedback.isError ? Color.red : Color.blue)
+                                    .cornerRadius(10)
+                            }
+                        }
+                        .padding(.horizontal, 12)
                     }
+                    .frame(maxHeight: 180)
+                    .padding(.bottom, 8)
                 }
             }
             .toolbar {

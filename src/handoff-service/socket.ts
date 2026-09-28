@@ -3,10 +3,11 @@ import type { Server as HTTPServer } from 'http'
 import http from 'http'
 import { getDeviceIdentity } from './pairing'
 import { getLatestClipboard, writeClipboard } from './clipboard'
+import { getConfig } from './config'
 
 let io: SocketIOServer | null = null
 type ClipboardAck = { success: boolean; transferId: string; error?: string; written?: number }
-type OutboundTransfer = { size: number; targetSocketIds: Set<string>; acknowledgedDeviceIds: Set<string>; createdAt: number }
+type OutboundTransfer = { size: number; targetDeviceIds: Set<string>; receiptStatusByDevice: Map<string, boolean>; createdAt: number }
 const outboundTransfers = new Map<string, OutboundTransfer>()
 const receivedTransfers = new Map<string, ClipboardAck>()
 const transferLifetimeMs = 5 * 60 * 1000
@@ -26,12 +27,12 @@ function sendClipboardToPeers(payload: string, hash: string, transferId: string,
   const targets = new Set<string>()
   for (const peer of io.sockets.sockets.values()) {
     if (peer.data.authenticated && peer.data.role === 'peer' && peer.id !== exceptSocketId) {
-      targets.add(peer.id)
+      targets.add(peer.data.deviceId)
       peer.emit('clipboard', { payload, hash, transferId, sourceId: 'server', timestamp: Date.now() })
     }
   }
   if (targets.size) outboundTransfers.set(transferId, {
-    size: payload.length, targetSocketIds: targets, acknowledgedDeviceIds: new Set(), createdAt: Date.now()
+    size: payload.length, targetDeviceIds: targets, receiptStatusByDevice: new Map(), createdAt: Date.now()
   })
 }
 
@@ -134,6 +135,7 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
       const fail = (error: string): void => { ack?.({ success: false, transferId, error }) }
       if (!socket.data.authenticated || socket.data.role !== 'peer') return fail('authentication required')
       if (!transferId || !payload) return fail('invalid clipboard payload')
+      if (payload.length > getConfig().features.clipboardMaxSize) return fail('clipboard payload too large')
       const key = `${socket.data.deviceId}:${transferId}`
       const prior = receivedTransfers.get(key)
       if (prior) { ack?.(prior); return }
@@ -164,13 +166,15 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
       if (getLatestClipboard().transferId === msg.transferId) {
         if (!transfer) {
           transfer = { size: getLatestClipboard().payload.length,
-            targetSocketIds: new Set(), acknowledgedDeviceIds: new Set(), createdAt: Date.now() }
+            targetDeviceIds: new Set(), receiptStatusByDevice: new Map(), createdAt: Date.now() }
           outboundTransfers.set(msg.transferId, transfer)
         }
-        transfer.targetSocketIds.add(socket.id)
+        transfer.targetDeviceIds.add(socket.data.deviceId)
       }
-      if (!transfer || !transfer.targetSocketIds.has(socket.id) || transfer.acknowledgedDeviceIds.has(socket.data.deviceId)) return
-      transfer.acknowledgedDeviceIds.add(socket.data.deviceId)
+      if (!transfer || !transfer.targetDeviceIds.has(socket.data.deviceId)) return
+      const priorStatus = transfer.receiptStatusByDevice.get(socket.data.deviceId)
+      if (priorStatus === msg.success || priorStatus === true) return
+      transfer.receiptStatusByDevice.set(socket.data.deviceId, msg.success)
       notifyAdmin('clipboard:delivery', {
         transferId: msg.transferId, deviceId: socket.data.deviceId, deviceName: socket.data.deviceName,
         direction: 'send', success: msg.success,
@@ -183,10 +187,10 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
       const latest = getLatestClipboard()
       if (socket.data.role !== 'peer' || !latest.payload) return
       const transfer = outboundTransfers.get(latest.transferId) ?? {
-        size: latest.payload.length, targetSocketIds: new Set<string>(),
-        acknowledgedDeviceIds: new Set<string>(), createdAt: Date.now()
+        size: latest.payload.length, targetDeviceIds: new Set<string>(),
+        receiptStatusByDevice: new Map<string, boolean>(), createdAt: Date.now()
       }
-      transfer.targetSocketIds.add(socket.id)
+      transfer.targetDeviceIds.add(socket.data.deviceId)
       outboundTransfers.set(latest.transferId, transfer)
       socket.emit('clipboard', { ...latest, sourceId: 'server', timestamp: Date.now() })
     })

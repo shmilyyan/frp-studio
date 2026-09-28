@@ -6,6 +6,9 @@ import SocketIO
 
 struct ClipboardFeedback: Identifiable {
     let id = UUID()
+    let deviceId: String
+    let transferId: String
+    let kind: String
     let message: String
     let isError: Bool
 }
@@ -14,7 +17,7 @@ class ConnectionManager: ObservableObject {
     @Published var pairedDevices: [PairedDevice] = []
     @Published var isScanning = false
     @Published var clipboardContent: String?
-    @Published var clipboardFeedback: ClipboardFeedback?
+    @Published var clipboardFeedback: [String: ClipboardFeedback] = [:]
     @Published var isConnecting = false
     @Published var connectionError: String?
     @Published private(set) var connectionStates: [String: DeviceConnectionState] = [:]
@@ -52,7 +55,8 @@ class ConnectionManager: ObservableObject {
     private var pendingManualDeviceIds: Set<String> = []
 
     private var lastRemoteClipboardHash: String = ""
-    private var receivedTransferIds: Set<String> = []
+    private var receiptOutcomes: [String: Bool] = [:]
+    private var receiptOrder: [String] = []
     private var lastLocalCopyTime: Date = Date()
     var currentDeviceId: String = ""
 
@@ -132,9 +136,29 @@ class ConnectionManager: ObservableObject {
         let transferId: String
     }
     private var pendingClipboard: [String: PendingClipboard] = [:]
+    private var inFlightClipboardAttempt: [String: UUID] = [:]
 
-    private func showClipboardFeedback(_ message: String, error: Bool = false) {
-        clipboardFeedback = ClipboardFeedback(message: message, isError: error)
+    private func feedbackKey(for serverId: String, kind: String, transferId: String) -> String {
+        "\(serverId):\(kind):\(transferId)"
+    }
+
+    private func clearClipboardFeedback(for serverId: String, kind: String) {
+        clipboardFeedback = clipboardFeedback.filter {
+            !($0.value.deviceId == serverId && $0.value.kind == kind)
+        }
+    }
+
+    private func showClipboardFeedback(_ message: String, for serverId: String = "general",
+                                       kind: String = "general", transferId: String = "",
+                                       error: Bool = false) {
+        let key = feedbackKey(for: serverId, kind: kind, transferId: transferId)
+        let feedback = ClipboardFeedback(deviceId: serverId, transferId: transferId,
+                                         kind: kind, message: message, isError: error)
+        clipboardFeedback[key] = feedback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self = self, self.clipboardFeedback[key]?.id == feedback.id else { return }
+            self.clipboardFeedback.removeValue(forKey: key)
+        }
     }
 
     private func saveDevices() {
@@ -266,16 +290,16 @@ class ConnectionManager: ObservableObject {
               let device = pairedDevices.first(where: { $0.deviceId == serverId }),
               let url = URL(string: "http://\(device.host):\(device.port)/clipboard/latest") else {
             logger.warn("pullClipboard: 目标设备未连接")
-            if manual { showClipboardFeedback("目标设备未连接", error: true) }
+            if manual { showClipboardFeedback("目标设备未连接", for: serverId, kind: "pull", error: true) }
             return
         }
-        if manual { showClipboardFeedback("正在获取 \(device.name) 的剪贴板…") }
+        if manual { showClipboardFeedback("正在获取 \(device.name) 的剪贴板…", for: serverId, kind: "pull") }
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if let error = error {
                     self.logger.error("剪贴板请求失败: \(error.localizedDescription)")
-                    if manual { self.showClipboardFeedback("获取 \(device.name) 的剪贴板失败", error: true) }
+                    if manual { self.showClipboardFeedback("获取 \(device.name) 的剪贴板失败", for: serverId, kind: "pull", error: true) }
                     return
                 }
                 guard let response = response as? HTTPURLResponse, response.statusCode == 200,
@@ -283,9 +307,10 @@ class ConnectionManager: ObservableObject {
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let payload = json["payload"] as? String, !payload.isEmpty,
                       let hash = json["hash"] as? String, !hash.isEmpty else {
-                    if manual { self.showClipboardFeedback("\(device.name) 的剪贴板为空或不可用", error: true) }
+                    if manual { self.showClipboardFeedback("\(device.name) 的剪贴板为空或不可用", for: serverId, kind: "pull", error: true) }
                     return
                 }
+                if manual { self.clearClipboardFeedback(for: serverId, kind: "pull") }
                 self.receiveClipboard(payload, hash: hash, transferId: json["transferId"] as? String ?? "",
                                       from: serverId, manual: manual)
             }
@@ -296,48 +321,75 @@ class ConnectionManager: ObservableObject {
                                   from serverId: String, manual: Bool) {
         let name = pairedDevices.first(where: { $0.deviceId == serverId })?.name ?? "设备"
         guard !content.isEmpty, !hash.isEmpty else {
-            if manual { showClipboardFeedback("\(name) 的剪贴板为空", error: true) }
+            if manual { showClipboardFeedback("\(name) 的剪贴板为空", for: serverId, kind: "receive", transferId: transferId, error: true) }
             return
         }
-        if !transferId.isEmpty && receivedTransferIds.contains(transferId) {
-            // The original confirmation may have been lost; repeat it without
-            // another pasteboard write or another user prompt.
-            sockets[serverId]?.socket.emit("clipboard:received", [
-                "transferId": transferId, "deviceId": deviceId, "success": true
-            ])
-            if manual { showClipboardFeedback("剪贴板已是 \(name) 的最新内容") }
+        let receiptKey = "\(serverId):\(transferId)"
+        let currentContent = UIPasteboard.general.string
+        if !transferId.isEmpty && receiptOutcomes[receiptKey] == true {
+            if currentContent == content {
+                // A lost confirmation can be repeated without another write or prompt.
+                emitClipboardReceipt(true, transferId: transferId, to: serverId)
+                if manual { showClipboardFeedback("剪贴板已是 \(name) 的最新内容", for: serverId, kind: "receive", transferId: transferId) }
+            } else if manual {
+                showClipboardFeedback("剪贴板内容已改变，请重新获取", for: serverId, kind: "receive", transferId: transferId)
+            }
             return
         }
-        if hash == lastRemoteClipboardHash || UIPasteboard.general.string == content {
-            if manual { showClipboardFeedback("剪贴板已是 \(name) 的最新内容") }
+        if currentContent == content {
+            // Content can already match because another Windows service delivered
+            // it. This service still receives its own accurate receipt.
+            lastRemoteClipboardHash = hash
+            clipboardContent = content
+            if !transferId.isEmpty { rememberClipboardReceipt(true, key: receiptKey) }
+            emitClipboardReceipt(true, transferId: transferId, to: serverId)
+            if manual {
+                showClipboardFeedback("\(name)：剪贴板已是最新内容", for: serverId,
+                                      kind: "receive", transferId: transferId)
+            }
             return
         }
         guard Date().timeIntervalSince(lastLocalCopyTime) >= 2.0 else {
-            if manual { showClipboardFeedback("刚复制了本机内容，请稍后重试") }
+            if manual { showClipboardFeedback("刚复制了本机内容，请稍后重试", for: serverId, kind: "receive", transferId: transferId) }
+            return
+        }
+        if hash == lastRemoteClipboardHash {
+            if manual { showClipboardFeedback("剪贴板内容已改变，请重新获取", for: serverId, kind: "receive", transferId: transferId) }
             return
         }
         ClipboardService.shared.setClipboard(content)
         guard UIPasteboard.general.string == content else {
-            if manual { showClipboardFeedback("写入 iOS 剪贴板失败", error: true) }
-            if !transferId.isEmpty {
-                sockets[serverId]?.socket.emit("clipboard:received", [
-                    "transferId": transferId, "deviceId": deviceId,
-                    "success": false, "error": "pasteboard write failed"
-                ])
+            emitClipboardReceipt(false, transferId: transferId, to: serverId, error: "pasteboard write failed")
+            if transferId.isEmpty || receiptOutcomes[receiptKey] != false {
+                showClipboardFeedback("\(name)：写入 iOS 剪贴板失败", for: serverId, kind: "receive", transferId: transferId, error: true)
             }
+            if !transferId.isEmpty { rememberClipboardReceipt(false, key: receiptKey) }
             return
         }
         lastRemoteClipboardHash = hash
-        if !transferId.isEmpty { receivedTransferIds.insert(transferId) }
-        if receivedTransferIds.count > 500 { receivedTransferIds.removeAll() }
+        if !transferId.isEmpty { rememberClipboardReceipt(true, key: receiptKey) }
         clipboardContent = content
-        if !transferId.isEmpty {
-            sockets[serverId]?.socket.emit("clipboard:received", [
-                "transferId": transferId, "deviceId": deviceId, "success": true
-            ])
-        }
-        showClipboardFeedback("来自 \(name)，已复制到剪贴板")
+        emitClipboardReceipt(true, transferId: transferId, to: serverId)
+        showClipboardFeedback("来自 \(name)，已复制到剪贴板", for: serverId, kind: "receive", transferId: transferId)
         logger.warn("剪贴板已同步 (\(content.count) 字符)")
+    }
+
+    private func emitClipboardReceipt(_ success: Bool, transferId: String,
+                                      to serverId: String, error: String? = nil) {
+        guard !transferId.isEmpty, let socket = sockets[serverId]?.socket else { return }
+        var receipt: [String: Any] = [
+            "transferId": transferId, "deviceId": deviceId, "success": success
+        ]
+        if let error = error { receipt["error"] = error }
+        socket.emit("clipboard:received", receipt)
+    }
+
+    private func rememberClipboardReceipt(_ success: Bool, key: String) {
+        if receiptOutcomes[key] == nil { receiptOrder.append(key) }
+        receiptOutcomes[key] = success
+        while receiptOrder.count > 500 {
+            receiptOutcomes.removeValue(forKey: receiptOrder.removeFirst())
+        }
     }
 
     func sendClipboard(_ content: String, manual: Bool = false) {
@@ -347,54 +399,72 @@ class ConnectionManager: ObservableObject {
         }
         lastLocalCopyTime = Date()
         let transferId = UUID().uuidString
-        var connectedCount = 0
-        var queuedCount = 0
+        var deviceCount = 0
         for device in pairedDevices where device.platform.lowercased() == "windows" {
+            deviceCount += 1
+            let pending = PendingClipboard(content: content, transferId: transferId)
+            // This is the sole desired transfer for this device. Callbacks from
+            // earlier transfers must not change it or its visible result.
+            clearClipboardFeedback(for: device.deviceId, kind: "send")
+            inFlightClipboardAttempt.removeValue(forKey: device.deviceId)
+            pendingClipboard[device.deviceId] = pending
             if connectionStates[device.deviceId] == .connected,
                let socket = sockets[device.deviceId]?.socket {
-                connectedCount += 1
-                sendClipboard(PendingClipboard(content: content, transferId: transferId), to: device.deviceId, socket: socket)
-                pendingClipboard.removeValue(forKey: device.deviceId)
+                showClipboardFeedback("等待 \(device.name) 确认…", for: device.deviceId,
+                                      kind: "send", transferId: transferId)
+                sendClipboard(pending, to: device.deviceId, socket: socket)
             } else {
-                queuedCount += 1
-                pendingClipboard[device.deviceId] = PendingClipboard(content: content, transferId: transferId)
+                showClipboardFeedback("\(device.name) 离线，连接后重试", for: device.deviceId,
+                                      kind: "send", transferId: transferId)
             }
         }
-        if connectedCount == 0 && queuedCount == 0 {
+        if deviceCount == 0 {
             showClipboardFeedback("尚无已配对的 Windows 设备", error: true)
-        } else if queuedCount > 0 {
-            showClipboardFeedback("\(queuedCount) 台设备等待连接后重试")
-        } else {
-            showClipboardFeedback("正在等待 \(connectedCount) 台设备确认…")
         }
     }
 
-    private func sendClipboard(_ pending: PendingClipboard, to serverId: String, socket: SocketIOClient) {
+    private func sendClipboard(_ pending: PendingClipboard, to serverId: String,
+                               socket: SocketIOClient, attempt: Int = 0) {
+        guard pendingClipboard[serverId]?.transferId == pending.transferId else { return }
+        let attemptId = UUID()
+        inFlightClipboardAttempt[serverId] = attemptId
         socket.emitWithAck("clipboard", ["payload": pending.content, "transferId": pending.transferId])
             .timingOut(after: 8) { [weak self] data in
                 DispatchQueue.main.async {
-                    guard let self = self else { return }
+                    guard let self = self,
+                          self.pendingClipboard[serverId]?.transferId == pending.transferId,
+                          self.inFlightClipboardAttempt[serverId] == attemptId else { return }
                     let name = self.pairedDevices.first(where: { $0.deviceId == serverId })?.name ?? "设备"
                     guard let result = data.first as? [String: Any],
                           result["transferId"] as? String == pending.transferId,
                           let success = result["success"] as? Bool else {
-                        if self.pendingClipboard[serverId] == nil ||
-                            self.pendingClipboard[serverId]?.transferId == pending.transferId {
-                            self.pendingClipboard[serverId] = pending
-                            self.showClipboardFeedback("\(name) 未确认，连接恢复后重试")
+                        let delay = min(Double(1 << min(attempt, 4)), 15.0)
+                        self.showClipboardFeedback("\(name) 未确认，正在重试…", for: serverId,
+                                                   kind: "send", transferId: pending.transferId)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                            guard let self = self,
+                                  self.pendingClipboard[serverId]?.transferId == pending.transferId,
+                                  self.inFlightClipboardAttempt[serverId] == attemptId,
+                                  self.connectionStates[serverId] == .connected,
+                                  let currentSocket = self.sockets[serverId]?.socket,
+                                  currentSocket.status == .connected else { return }
+                            self.sendClipboard(pending, to: serverId, socket: currentSocket,
+                                               attempt: attempt + 1)
                         }
                         return
                     }
+                    self.pendingClipboard.removeValue(forKey: serverId)
+                    self.inFlightClipboardAttempt.removeValue(forKey: serverId)
                     if success {
-                        if self.pendingClipboard[serverId]?.transferId == pending.transferId {
-                            self.pendingClipboard.removeValue(forKey: serverId)
-                        }
-                        self.showClipboardFeedback("已同步到 \(name)")
+                        self.showClipboardFeedback("已同步到 \(name)", for: serverId,
+                                                   kind: "send", transferId: pending.transferId)
                     } else {
-                        if self.pendingClipboard[serverId]?.transferId == pending.transferId {
-                            self.pendingClipboard.removeValue(forKey: serverId)
-                        }
-                        self.showClipboardFeedback("\(name) 写入剪贴板失败", error: true)
+                        let reason = result["error"] as? String
+                        let detail = reason == "clipboard payload too large"
+                            ? "内容超过 \(name) 允许的剪贴板大小"
+                            : "\(name) 写入剪贴板失败"
+                        self.showClipboardFeedback(detail, for: serverId,
+                                                   kind: "send", transferId: pending.transferId, error: true)
                     }
                 }
             }
@@ -608,8 +678,9 @@ class ConnectionManager: ObservableObject {
                 self.selectedDeviceId = serverId
             }
             self.logger.info("设备已注册: \(self.deviceId), serverId=\(serverId)")
-            if let pending = self.pendingClipboard.removeValue(forKey: serverId) {
-                self.showClipboardFeedback("正在重试发送到 \(self.pairedDevices.first(where: { $0.deviceId == serverId })?.name ?? "设备")…")
+            if let pending = self.pendingClipboard[serverId] {
+                self.showClipboardFeedback("正在重试发送到 \(self.pairedDevices.first(where: { $0.deviceId == serverId })?.name ?? "设备")…",
+                                           for: serverId, kind: "send", transferId: pending.transferId)
                 self.sendClipboard(pending, to: serverId, socket: socket)
             }
             self.saveDevices()
@@ -629,6 +700,11 @@ class ConnectionManager: ObservableObject {
         socket.on(clientEvent: .disconnect) { [weak self] _, _ in
             self?.logger.warn("socket.io 断开: \(serverId)")
             self?.setState(.reconnecting, for: serverId)
+            if let pending = self?.pendingClipboard[serverId] {
+                let name = self?.pairedDevices.first(where: { $0.deviceId == serverId })?.name ?? "设备"
+                self?.showClipboardFeedback("\(name) 重连后继续发送", for: serverId,
+                                            kind: "send", transferId: pending.transferId)
+            }
         }
 
         socket.on(clientEvent: .error) { [weak self] data, _ in
