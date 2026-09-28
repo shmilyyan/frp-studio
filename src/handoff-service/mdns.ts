@@ -1,8 +1,75 @@
 import multicastDns from 'multicast-dns'
 import { getConfig } from './config'
 import os from 'os'
+import { isIP } from 'net'
 
 let mdns: multicastDns.MulticastDNS | null = null
+const services = new Map<string, { target: string; port: number }>()
+const metadata = new Map<string, Record<string, string>>()
+const addresses = new Map<string, string>()
+
+function normalized(name: string): string {
+  return name.replace(/\.$/, '').toLowerCase()
+}
+
+function usableAddress(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const family = isIP(value)
+  if (!family) return false
+  if (value === '0.0.0.0' || value === '::' || value === '::1') return false
+  if (family === 4) {
+    const [first, second] = value.split('.').map(Number)
+    if (first === 0 || first === 127 || first >= 224 || (first === 169 && second === 254)) return false
+  } else {
+    const lower = value.toLowerCase()
+    if (lower.startsWith('fe80:') || lower.startsWith('ff')) return false
+  }
+  return true
+}
+
+function parseTXT(data: unknown): Record<string, string> {
+  const entries = Array.isArray(data) ? data : [data]
+  const result: Record<string, string> = {}
+  for (const entry of entries) {
+    const value = Buffer.isBuffer(entry) ? entry : Buffer.from(String(entry || ''))
+    try {
+      const json = JSON.parse(value.toString('utf-8'))
+      if (json && typeof json === 'object' && !Array.isArray(json)) {
+        for (const [key, field] of Object.entries(json)) {
+          if (typeof field === 'string') result[key] = field
+        }
+        continue
+      }
+    } catch { /* DNS-SD key=value entries */ }
+    Object.assign(result, parseDNSSDTXT(value))
+    const plain = value.toString('utf-8')
+    const equals = plain.indexOf('=')
+    if (equals > 0) result[plain.slice(0, equals)] = plain.slice(equals + 1)
+  }
+  return result
+}
+
+function publishResolvedServices(changedNames: Set<string>): void {
+  for (const [name, service] of services) {
+    if (!changedNames.has(name) && !changedNames.has(normalized(service.target))) continue
+    const txt = metadata.get(name)
+    const host = addresses.get(normalized(service.target))
+    if (!txt) continue
+    const deviceId = txt.deviceId || undefined
+    if (deviceId && deviceId === getDeviceId()) continue
+    const deviceName = txt.deviceName || txt.name || name.split('._handoff._tcp.local')[0]
+    const discoveryId = deviceId || `service:${name}`
+    try {
+      const { onBonjourDeviceFound } = require('./scanner')
+      onBonjourDeviceFound({
+        discoveryId, deviceId, deviceName,
+        platform: txt.platform || 'unknown',
+        ...(host ? { host } : {}),
+        ...(service.port > 0 ? { port: service.port } : {})
+      })
+    } catch { /* scanner may not be started yet */ }
+  }
+}
 
 function getDeviceId(): string {
   try {
@@ -94,33 +161,50 @@ export function startMDNSBroadcast(): void {
     })
   })
 
-  // 监听 mDNS 响应 — 解析 iOS 设备的 Bonjour 宣告
+  // Keep SRV, TXT and address records independently: Bonjour may deliver them
+  // in separate responses, and A/AAAA records belong to the SRV target.
   mdns.on('response', (response) => {
-    for (const answer of response.answers) {
-      if (answer.type === 'TXT' && answer.name.endsWith('._handoff._tcp.local')) {
-        try {
-          const txtBuf = Buffer.isBuffer(answer.data) ? answer.data : Buffer.from(String(answer.data || ''))
-          const txtData = parseDNSSDTXT(txtBuf)
-          if (Object.keys(txtData).length === 0) continue
-          const deviceId = txtData['deviceId']
-          const platform = txtData['platform'] || ''
-          if (deviceId && platform === 'ios') {
-            // Try to get IP from additional records
-            let ip = '0.0.0.0'
-            for (const add of (response.additionals || [])) {
-              if (add.type === 'A' && add.name === answer.name) {
-                ip = String(add.data || '0.0.0.0')
-                break
-              }
-            }
-            try {
-              const { onBonjourDeviceFound } = require('./scanner')
-              onBonjourDeviceFound(deviceId, ip)
-            } catch { /* scanner may not be started yet */ }
+    const records = [...response.answers, ...(response.additionals || [])]
+    const changedNames = new Set<string>()
+    for (const record of records) {
+      const name = normalized(record.name)
+      if (record.type === 'PTR' && name === '_handoff._tcp.local' &&
+          typeof record.data === 'string') {
+        const instance = normalized(record.data)
+        changedNames.add(instance)
+        if (!services.has(instance) || !metadata.has(instance)) {
+          mdns?.query({ questions: [
+            { name: record.data, type: 'SRV' },
+            { name: record.data, type: 'TXT' }
+          ] })
+        }
+      } else if (record.type === 'SRV' && name.endsWith('._handoff._tcp.local')) {
+        const data = record.data as { target?: string; port?: number }
+        if (data?.target && Number.isInteger(data.port) && data.port! >= 0 && data.port! <= 65535) {
+          services.set(name, { target: data.target, port: data.port! })
+          changedNames.add(name)
+          if (!addresses.has(normalized(data.target))) {
+            mdns?.query({ questions: [
+              { name: data.target, type: 'A' },
+              { name: data.target, type: 'AAAA' }
+            ] })
           }
-        } catch { /* 解析失败跳过 */ }
+        }
+      } else if (record.type === 'TXT' && name.endsWith('._handoff._tcp.local')) {
+        const txt = parseTXT(record.data)
+        if (Object.keys(txt).length) {
+          metadata.set(name, txt)
+          changedNames.add(name)
+        }
+      } else if ((record.type === 'A' || record.type === 'AAAA') && usableAddress(record.data)) {
+        const previous = addresses.get(name)
+        if (!previous || (isIP(record.data) === 4 && isIP(previous) === 6)) {
+          addresses.set(name, record.data)
+        }
+        changedNames.add(name)
       }
     }
+    publishResolvedServices(changedNames)
   })
 
   // Periodic announcement every 30 seconds (triggers responses + proactive query)
@@ -166,6 +250,9 @@ export function stopMDNSBroadcast(): void {
     mdns.destroy()
     mdns = null
   }
+  services.clear()
+  metadata.clear()
+  addresses.clear()
 }
 
 export function queryMDNS(): void {

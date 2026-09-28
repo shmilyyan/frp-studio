@@ -310,9 +310,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   if (req.method === 'POST' && url === '/scanner/scan') {
     try {
       const { refreshScan } = require('./scanner')
-      const { queryMDNS } = require('./mdns')
       refreshScan()
-      queryMDNS()
       res.writeHead(200)
       res.end(JSON.stringify({ success: true }))
     } catch (e) {
