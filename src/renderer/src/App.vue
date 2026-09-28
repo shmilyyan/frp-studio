@@ -41,11 +41,13 @@ const handoffStore = useHandoffStore()
 
 watch(() => handoffStore.latestClipboardDelivery, (delivery) => {
   if (!delivery) return
-  const { deviceName, direction, success } = delivery.result
+  const { deviceName, direction, success, error } = delivery.result
   const action = direction === 'send' ? '已送达' : '已接收'
   const label = deviceName || '设备'
   if (success) message.success(`${label}：剪贴板${action}`)
-  else message.error(`${label}：剪贴板${direction === 'send' ? '发送' : '接收'}失败`)
+  else if (direction === 'send' && error === 'local-copy-protection') {
+    message.info(`${label}：刚复制了本机内容，稍后重试送达`)
+  } else message.error(`${label}：剪贴板${direction === 'send' ? '发送' : '接收'}失败`)
 })
 
 let removeListeners: Array<() => void> = []

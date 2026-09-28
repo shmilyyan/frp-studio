@@ -57,6 +57,7 @@ class ConnectionManager: ObservableObject {
     private var lastRemoteClipboardHash: String = ""
     private var receiptOutcomes: [String: Bool] = [:]
     private var receiptOrder: [String] = []
+    private var deferredReceiptKeys: Set<String> = []
     private var lastLocalCopyTime: Date = Date()
     var currentDeviceId: String = ""
 
@@ -331,6 +332,7 @@ class ConnectionManager: ObservableObject {
             // it. Confirm this server's receipt without another pasteboard write.
             lastRemoteClipboardHash = hash
             clipboardContent = content
+            deferredReceiptKeys.remove(receiptKey)
             if !transferId.isEmpty { rememberClipboardReceipt(true, key: receiptKey) }
             emitClipboardReceipt(true, transferId: transferId, to: serverId)
             if manual {
@@ -339,19 +341,38 @@ class ConnectionManager: ObservableObject {
             }
             return
         }
+        if !manual && !transferId.isEmpty && receiptOutcomes[receiptKey] == true { return }
         guard Date().timeIntervalSince(lastLocalCopyTime) >= 2.0 else {
-            if manual { showClipboardFeedback("刚复制了本机内容，请稍后重试", for: serverId, kind: "receive", transferId: transferId) }
+            if manual {
+                showClipboardFeedback("刚复制了本机内容，请稍后重试", for: serverId,
+                                      kind: "receive", transferId: transferId)
+            } else {
+                let firstDeferral = deferredReceiptKeys.insert(receiptKey).inserted
+                if !transferId.isEmpty {
+                    rememberClipboardReceipt(false, key: receiptKey)
+                    emitClipboardReceipt(false, transferId: transferId, to: serverId,
+                                         error: "local-copy-protection")
+                }
+                if firstDeferral {
+                    let status = transferId.isEmpty
+                        ? "\(name)：本机刚复制内容，稍后可手动获取"
+                        : "\(name)：本机刚复制内容，稍后重试同步"
+                    showClipboardFeedback(status, for: serverId,
+                                          kind: "receive", transferId: transferId)
+                }
+            }
             return
         }
         // An explicit pull represents a new user request. Once the local-copy
         // guard expires, it may restore an older server value. Socket pushes
         // still ignore transfers and hashes already received automatically.
         if !manual && ((!transferId.isEmpty && receiptOutcomes[receiptKey] == true) ||
-                       hash == lastRemoteClipboardHash) {
+                       (hash == lastRemoteClipboardHash && !deferredReceiptKeys.contains(receiptKey))) {
             return
         }
         ClipboardService.shared.setClipboard(content)
         guard UIPasteboard.general.string == content else {
+            deferredReceiptKeys.remove(receiptKey)
             emitClipboardReceipt(false, transferId: transferId, to: serverId, error: "pasteboard write failed")
             if transferId.isEmpty || receiptOutcomes[receiptKey] != false {
                 showClipboardFeedback("\(name)：写入 iOS 剪贴板失败", for: serverId, kind: "receive", transferId: transferId, error: true)
@@ -360,6 +381,7 @@ class ConnectionManager: ObservableObject {
             return
         }
         lastRemoteClipboardHash = hash
+        deferredReceiptKeys.remove(receiptKey)
         if !transferId.isEmpty { rememberClipboardReceipt(true, key: receiptKey) }
         clipboardContent = content
         emitClipboardReceipt(true, transferId: transferId, to: serverId)
@@ -381,7 +403,9 @@ class ConnectionManager: ObservableObject {
         if receiptOutcomes[key] == nil { receiptOrder.append(key) }
         receiptOutcomes[key] = success
         while receiptOrder.count > 500 {
-            receiptOutcomes.removeValue(forKey: receiptOrder.removeFirst())
+            let oldest = receiptOrder.removeFirst()
+            receiptOutcomes.removeValue(forKey: oldest)
+            deferredReceiptKeys.remove(oldest)
         }
     }
 

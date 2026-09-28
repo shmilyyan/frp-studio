@@ -7,15 +7,41 @@ import { getConfig } from './config'
 
 let io: SocketIOServer | null = null
 type ClipboardAck = { success: boolean; transferId: string; error?: string; written?: number }
-type OutboundTransfer = { size: number; targetDeviceIds: Set<string>; receiptStatusByDevice: Map<string, boolean>; createdAt: number }
+type OutboundTransfer = {
+  size: number
+  targetDeviceIds: Set<string>
+  receiptStatusByDevice: Map<string, boolean>
+  pushSocketByDevice: Map<string, string>
+  retryUsedByDevice: Set<string>
+  retryTimersByDevice: Map<string, ReturnType<typeof setTimeout>>
+  createdAt: number
+}
 const outboundTransfers = new Map<string, OutboundTransfer>()
 const receivedTransfers = new Map<string, ClipboardAck>()
 const transferLifetimeMs = 5 * 60 * 1000
+const localCopyRetryDelayMs = 2200
+
+function newOutboundTransfer(size: number): OutboundTransfer {
+  return {
+    size, targetDeviceIds: new Set(), receiptStatusByDevice: new Map(),
+    pushSocketByDevice: new Map(), retryUsedByDevice: new Set(),
+    retryTimersByDevice: new Map(), createdAt: Date.now()
+  }
+}
+
+function cancelClipboardRetry(transfer: OutboundTransfer, deviceId: string): void {
+  const timer = transfer.retryTimersByDevice.get(deviceId)
+  if (timer) clearTimeout(timer)
+  transfer.retryTimersByDevice.delete(deviceId)
+}
 
 function pruneTransfers(): void {
   const oldest = Date.now() - transferLifetimeMs
   for (const [id, transfer] of outboundTransfers) {
-    if (transfer.createdAt < oldest) outboundTransfers.delete(id)
+    if (transfer.createdAt < oldest) {
+      for (const deviceId of transfer.retryTimersByDevice.keys()) cancelClipboardRetry(transfer, deviceId)
+      outboundTransfers.delete(id)
+    }
   }
   // Map insertion order provides a bounded cache for retries after a lost ACK.
   while (receivedTransfers.size > 500) receivedTransfers.delete(receivedTransfers.keys().next().value!)
@@ -25,15 +51,18 @@ function sendClipboardToPeers(payload: string, hash: string, transferId: string,
   if (!io) return
   pruneTransfers()
   const targets = new Set<string>()
+  const transfer = newOutboundTransfer(payload.length)
   for (const peer of io.sockets.sockets.values()) {
     if (peer.data.authenticated && peer.data.role === 'peer' && peer.id !== exceptSocketId) {
       targets.add(peer.data.deviceId)
+      transfer.pushSocketByDevice.set(peer.data.deviceId, peer.id)
       peer.emit('clipboard', { payload, hash, transferId, sourceId: 'server', timestamp: Date.now() })
     }
   }
-  if (targets.size) outboundTransfers.set(transferId, {
-    size: payload.length, targetDeviceIds: targets, receiptStatusByDevice: new Map(), createdAt: Date.now()
-  })
+  if (targets.size) {
+    transfer.targetDeviceIds = targets
+    outboundTransfers.set(transferId, transfer)
+  }
 }
 
 export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
@@ -165,32 +194,48 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
       // not part of the original push (for example, it reconnected later).
       if (getLatestClipboard().transferId === msg.transferId) {
         if (!transfer) {
-          transfer = { size: getLatestClipboard().payload.length,
-            targetDeviceIds: new Set(), receiptStatusByDevice: new Map(), createdAt: Date.now() }
+          transfer = newOutboundTransfer(getLatestClipboard().payload.length)
           outboundTransfers.set(msg.transferId, transfer)
         }
         transfer.targetDeviceIds.add(socket.data.deviceId)
       }
       if (!transfer || !transfer.targetDeviceIds.has(socket.data.deviceId)) return
-      const priorStatus = transfer.receiptStatusByDevice.get(socket.data.deviceId)
+      const trackedTransfer = transfer
+      const priorStatus = trackedTransfer.receiptStatusByDevice.get(socket.data.deviceId)
       if (priorStatus === msg.success || priorStatus === true) return
-      transfer.receiptStatusByDevice.set(socket.data.deviceId, msg.success)
+      trackedTransfer.receiptStatusByDevice.set(socket.data.deviceId, msg.success)
+      if (msg.success) cancelClipboardRetry(trackedTransfer, socket.data.deviceId)
       notifyAdmin('clipboard:delivery', {
         transferId: msg.transferId, deviceId: socket.data.deviceId, deviceName: socket.data.deviceName,
         direction: 'send', success: msg.success,
         error: msg.success ? undefined : (typeof msg.error === 'string' ? msg.error : 'clipboard write failed'),
-        size: transfer.size
+        size: trackedTransfer.size
       })
+      if (!msg.success && msg.error === 'local-copy-protection' &&
+          !trackedTransfer.retryUsedByDevice.has(socket.data.deviceId) &&
+          trackedTransfer.pushSocketByDevice.get(socket.data.deviceId) === socket.id) {
+        const deviceId = socket.data.deviceId as string
+        const transferId = msg.transferId
+        trackedTransfer.retryUsedByDevice.add(deviceId)
+        const timer = setTimeout(() => {
+          trackedTransfer.retryTimersByDevice.delete(deviceId)
+          const latest = getLatestClipboard()
+          const peer = io?.sockets.sockets.get(socket.id)
+          if (outboundTransfers.get(transferId) !== trackedTransfer || latest.transferId !== transferId ||
+              trackedTransfer.receiptStatusByDevice.get(deviceId) === true || !peer?.connected ||
+              !peer.data.authenticated || peer.data.role !== 'peer' || peer.data.deviceId !== deviceId) return
+          peer.emit('clipboard', { ...latest, sourceId: 'server', timestamp: Date.now() })
+        }, localCopyRetryDelayMs)
+        trackedTransfer.retryTimersByDevice.set(deviceId, timer)
+      }
     })
 
     socket.on('clipboard:latest', () => {
       const latest = getLatestClipboard()
       if (socket.data.role !== 'peer' || !latest.payload) return
-      const transfer = outboundTransfers.get(latest.transferId) ?? {
-        size: latest.payload.length, targetDeviceIds: new Set<string>(),
-        receiptStatusByDevice: new Map<string, boolean>(), createdAt: Date.now()
-      }
+      const transfer = outboundTransfers.get(latest.transferId) ?? newOutboundTransfer(latest.payload.length)
       transfer.targetDeviceIds.add(socket.data.deviceId)
+      transfer.pushSocketByDevice.set(socket.data.deviceId, socket.id)
       outboundTransfers.set(latest.transferId, transfer)
       socket.emit('clipboard', { ...latest, sourceId: 'server', timestamp: Date.now() })
     })
@@ -206,6 +251,11 @@ export function startSocketServer(httpServer: HTTPServer): SocketIOServer {
     socket.on('disconnect', (reason) => {
       console.log(`[socket.io] Client disconnected: ${socket.id} (${reason})`)
       if (socket.data.role === 'peer') {
+        for (const transfer of outboundTransfers.values()) {
+          if (transfer.pushSocketByDevice.get(socket.data.deviceId) === socket.id) {
+            cancelClipboardRetry(transfer, socket.data.deviceId)
+          }
+        }
         // Update device offline status
         if (socket.data.deviceId) {
           const offlinePost = JSON.stringify({
