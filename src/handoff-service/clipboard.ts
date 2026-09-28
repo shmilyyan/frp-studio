@@ -1,10 +1,11 @@
 import { getConfig } from './config'
 import { execSync } from 'child_process'
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import http from 'http'
 
 let cachedContent = ''
 let cachedHash = ''
+let cachedTransferId = ''
 let pollingTimer: ReturnType<typeof setInterval> | null = null
 
 function execPowerShell(script: string): Promise<string> {
@@ -26,7 +27,7 @@ export function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex')
 }
 
-export function startClipboardWatcher(onChange: (content: string) => void): void {
+export function startClipboardWatcher(onChange: (content: string, hash: string, transferId: string) => void): void {
   const config = getConfig()
   if (!config.features.clipboardSync) return
 
@@ -41,7 +42,8 @@ export function startClipboardWatcher(onChange: (content: string) => void): void
       if (hash !== cachedHash) {
         cachedContent = content
         cachedHash = hash
-        onChange(content)
+        cachedTransferId = randomUUID()
+        onChange(content, hash, cachedTransferId)
         notifyTransferRecord('clipboard', 'send', content.slice(0, 100), content.length)
       }
     } catch { /* ignore clipboard errors */ }
@@ -63,11 +65,12 @@ export function writeClipboard(text: string): void {
   execSync(`powershell -WindowStyle Hidden -NoProfile -EncodedCommand ${encoded}`, { encoding: 'utf-8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
   cachedContent = text
   cachedHash = hashContent(text)
+  cachedTransferId = randomUUID()
   notifyTransferRecord('clipboard', 'receive', text.slice(0, 100), text.length)
 }
 
-export function getLatestClipboard(): { hash: string; payload: string } {
-  return { hash: cachedHash, payload: cachedContent }
+export function getLatestClipboard(): { hash: string; payload: string; transferId: string } {
+  return { hash: cachedHash, payload: cachedContent, transferId: cachedTransferId }
 }
 
 function notifyTransferRecord(type: string, direction: string, detail: string, size: number): void {

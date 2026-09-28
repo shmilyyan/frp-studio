@@ -24,22 +24,37 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import AppHeader from './components/layout/AppHeader.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import { darkTheme } from './styles/theme'
 import { useMonitorStore } from './stores/monitor'
 import { useNodeStore } from './stores/node'
 import { useUpdateStore } from './stores/update'
+import { useHandoffStore } from './stores/handoff'
 import { message } from 'ant-design-vue'
 
 const monitorStore = useMonitorStore()
 const nodeStore = useNodeStore()
 const updateStore = useUpdateStore()
+const handoffStore = useHandoffStore()
+
+watch(() => handoffStore.latestClipboardDelivery, (delivery) => {
+  if (!delivery) return
+  const { deviceName, direction, success, error } = delivery.result
+  const action = direction === 'send' ? '已送达' : '已接收'
+  const label = deviceName || '设备'
+  if (success) message.success(`${label}：剪贴板${action}`)
+  else if (direction === 'send' && error === 'local-copy-protection') {
+    message.info(`${label}：刚复制了本机内容，稍后重试送达`)
+  } else message.error(`${label}：剪贴板${direction === 'send' ? '发送' : '接收'}失败`)
+})
 
 let removeListeners: Array<() => void> = []
 
 onMounted(() => {
+  handoffStore.connectSSE()
+  void handoffStore.fetchServiceStatus()
   removeListeners.push(
     window.api.frpc.onLog((data) => {
       monitorStore.addLog(data.nodeId, {
@@ -79,6 +94,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  handoffStore.disconnectSSE()
   removeListeners.forEach((fn) => fn())
   removeListeners = []
 })

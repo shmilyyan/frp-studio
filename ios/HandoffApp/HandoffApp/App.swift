@@ -19,12 +19,19 @@ struct HandoffApp: App {
                 .environmentObject(connectionManager)
                 .environmentObject(discoveryService)
                 .environmentObject(logger)
+                .onAppear {
+                    discoveryService.onDeviceDiscovered = { [weak manager = connectionManager] device in
+                        manager?.updateDiscoveredDevice(device)
+                    }
+                    connectionManager.restorePairedConnections(using: discoveryService.discoveredDevices)
+                }
         }
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
                 AdvertiseService.shared.start()
                 DiscoveryService.shared.startBrowsing()
+                connectionManager.restorePairedConnections(using: discoveryService.discoveredDevices)
             case .background, .inactive:
                 AdvertiseService.shared.stop()
             @unknown default:

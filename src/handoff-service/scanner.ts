@@ -1,99 +1,134 @@
-import http from 'http'
 import { getConfig } from './config'
 
+export interface BonjourDiscovery {
+  discoveryId: string
+  deviceId?: string
+  deviceName: string
+  platform: string
+  host?: string
+  port?: number
+  lastSeen: number
+}
+
+interface DiscoveryState {
+  device: BonjourDiscovery
+  missedScans: number
+  lastMissedStart: number
+}
+
+interface ScanWindow {
+  startedAt: number
+  seen: Set<string>
+  timeout: ReturnType<typeof setTimeout>
+}
+
+const RESPONSE_WINDOW_MS = 1500
+const MISSED_INTERVALS = 2
+const discoveries = new Map<string, DiscoveryState>()
+const windows = new Map<number, ScanWindow>()
 let scanTimer: ReturnType<typeof setInterval> | null = null
-let previousDevices: Set<string> = new Set()
-let currentScanDevices: Set<string> = new Set()
+let nextScanId = 0
+let onScanQuery: (() => void) | null = null
+let scanIntervalMs = 30000
 
-function notifyDeviceFound(deviceId: string, ip: string): void {
-  currentScanDevices.add(deviceId)
-  if (previousDevices.has(deviceId)) return  // already known from previous scan
-
-  console.log(`[scanner] Bonjour 发现设备: ${deviceId} @ ${ip}`)
-
-  // Update device status via internal HTTP
-  const postData = JSON.stringify({ deviceId, online: true, ip, source: 'bonjour' })
-  const req = http.request({
-    hostname: '127.0.0.1', port: 19529, path: '/internal/device-status',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
-  }, () => {})
-  req.on('error', () => { /* silent */ })
-  req.write(postData)
-  req.end()
-
-  // Notify admin via socket.io
+function notifyAdmin(event: string, data: unknown): void {
   try {
-    const { notifyAdmin } = require('./socket')
-    notifyAdmin('bonjour:found', { deviceId, ip })
+    const { notifyAdmin: send } = require('./socket')
+    send(event, data)
   } catch { /* socket may not be initialized yet */ }
 }
 
-function finalizeScan(): void {
-  // Devices in previous but not in current → went offline
-  for (const deviceId of previousDevices) {
-    if (!currentScanDevices.has(deviceId)) {
-      const postData = JSON.stringify({ deviceId, online: false, source: 'bonjour' })
-      const req = http.request({
-        hostname: '127.0.0.1', port: 19529, path: '/internal/device-status',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
-      }, () => {})
-      req.on('error', () => { /* silent */ })
-      req.write(postData)
-      req.end()
+function finalizeScan(id: number): void {
+  const window = windows.get(id)
+  if (!window) return
+  windows.delete(id)
 
-      try {
-        const { notifyAdmin } = require('./socket')
-        notifyAdmin('bonjour:lost', { deviceId })
-      } catch { /* silent */ }
+  for (const [discoveryId, state] of discoveries) {
+    if (window.seen.has(discoveryId) || state.device.lastSeen >= window.startedAt) continue
+    if (window.startedAt <= state.lastMissedStart) continue
+    if (state.lastMissedStart && window.startedAt - state.lastMissedStart < scanIntervalMs) continue
+    state.lastMissedStart = window.startedAt
+    state.missedScans += 1
+    if (state.missedScans >= MISSED_INTERVALS) {
+      discoveries.delete(discoveryId)
+      notifyAdmin('bonjour:lost', { discoveryId, deviceId: state.device.deviceId })
     }
   }
-  previousDevices = currentScanDevices
-  currentScanDevices = new Set()
+}
+
+function beginScan(): void {
+  if (!onScanQuery) return
+  const id = ++nextScanId
+  const window: ScanWindow = {
+    startedAt: Date.now(),
+    seen: new Set(),
+    timeout: setTimeout(() => finalizeScan(id), RESPONSE_WINDOW_MS)
+  }
+  windows.set(id, window)
+  onScanQuery()
 }
 
 export function refreshScan(): void {
   console.log('[scanner] 手动扫描触发')
-  currentScanDevices.clear()
+  beginScan()
 }
 
 export function startScanner(onScan: () => void): void {
   stopScanner()
+  onScanQuery = onScan
   const config = getConfig()
   const interval = Math.max(5, config.scanner.interval || 30) * 1000
+  scanIntervalMs = interval
   console.log(`[scanner] 定时扫描已启动 (间隔 ${interval / 1000}s)`)
-
-  scanTimer = setInterval(() => {
-    onScan()
-    // Finalize after giving mDNS time to collect responses (1s grace period)
-    setTimeout(() => finalizeScan(), 1000)
-  }, interval)
+  beginScan()
+  scanTimer = setInterval(beginScan, interval)
 }
 
 export function setScanInterval(seconds: number): void {
   if (seconds < 5) seconds = 5
   const config = getConfig()
   config.scanner.interval = seconds
-  // Persist to disk
+  scanIntervalMs = seconds * 1000
   try {
     const { saveScannerInterval } = require('./config')
     saveScannerInterval(seconds)
   } catch { /* best effort */ }
-  // Restart timer with new interval
-  const { queryMDNS } = require('./mdns')
-  startScanner(() => queryMDNS())
+  const query = onScanQuery || (() => require('./mdns').queryMDNS())
+  if (scanTimer) clearInterval(scanTimer)
+  for (const window of windows.values()) clearTimeout(window.timeout)
+  windows.clear()
+  onScanQuery = query
+  scanTimer = setInterval(beginScan, seconds * 1000)
+  beginScan()
 }
 
 export function stopScanner(): void {
-  if (scanTimer) {
-    clearInterval(scanTimer)
-    scanTimer = null
-  }
-  previousDevices.clear()
-  currentScanDevices.clear()
+  if (scanTimer) clearInterval(scanTimer)
+  scanTimer = null
+  for (const window of windows.values()) clearTimeout(window.timeout)
+  windows.clear()
+  discoveries.clear()
+  onScanQuery = null
 }
 
-export function onBonjourDeviceFound(deviceId: string, ip: string): void {
-  notifyDeviceFound(deviceId, ip)
+export function onBonjourDeviceFound(device: Omit<BonjourDiscovery, 'lastSeen'>): void {
+  const lastSeen = Date.now()
+  const next = { ...device, lastSeen }
+  if (device.deviceId) {
+    for (const [key, state] of discoveries) {
+      if (!key.startsWith('service:')) continue
+      if (state.device.deviceName === device.deviceName &&
+          state.device.platform === device.platform &&
+          state.device.host === device.host &&
+          state.device.port === device.port) {
+        discoveries.delete(key)
+        notifyAdmin('bonjour:lost', { discoveryId: key })
+      }
+    }
+  }
+  for (const window of windows.values()) {
+    if (lastSeen >= window.startedAt) window.seen.add(device.discoveryId)
+  }
+  discoveries.set(device.discoveryId, { device: next, missedScans: 0, lastMissedStart: 0 })
+  notifyAdmin('bonjour:found', next)
 }

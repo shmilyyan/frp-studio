@@ -4,37 +4,60 @@ import Network
 import Security
 import SocketIO
 
+struct ClipboardFeedback: Identifiable {
+    let id = UUID()
+    let deviceId: String
+    let transferId: String
+    let kind: String
+    let message: String
+    let isError: Bool
+}
+
 class ConnectionManager: ObservableObject {
     @Published var pairedDevices: [PairedDevice] = []
     @Published var isScanning = false
     @Published var clipboardContent: String?
+    @Published var clipboardFeedback: [String: ClipboardFeedback] = [:]
     @Published var isConnecting = false
     @Published var connectionError: String?
+    @Published private(set) var connectionStates: [String: DeviceConnectionState] = [:]
+    @Published var selectedDeviceId: String = "" {
+        didSet {
+            guard let device = pairedDevices.first(where: {
+                $0.deviceId == selectedDeviceId && $0.platform.lowercased() == "windows"
+            }) else { return }
+            baseURL = device.host.isEmpty ? "" : "\(device.host):\(device.port)"
+            currentDeviceId = device.deviceId
+        }
+    }
 
+    // Retained for file uploads and the selected clipboard target.
     var baseURL: String = "" {
         didSet {
             if !baseURL.isEmpty {
-                UserDefaults.standard.set(baseURL, forKey: "handoff_baseURL")
+                _ = KeychainHelper.save(key: "handoff_base_url", value: baseURL)
                 startPolling()
-                let parts = baseURL.split(separator: ":")
-                if parts.count == 2, let portNum = Int(parts[1]) {
-                    connectSocketIO(host: String(parts[0]), port: portNum)
-                }
             } else {
-                UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
                 stopPolling()
-                socket?.disconnect()
-                socket = nil
             }
         }
     }
     private var webSocket: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
     private var pollTimer: Timer?
-    private var manager: SocketManager?
-    private var socket: SocketIOClient?
+    private struct DeviceSocket {
+        let manager: SocketManager
+        let socket: SocketIOClient
+        let host: String
+        let port: UInt16
+    }
+    private var sockets: [String: DeviceSocket] = [:]
+    private var pendingManualDeviceIds: Set<String> = []
 
     private var lastRemoteClipboardHash: String = ""
+    private var receiptOutcomes: [String: Bool] = [:]
+    private var receiptOrder: [String] = []
+    private var deferredReceiptKeys: Set<String> = []
     private var lastLocalCopyTime: Date = Date()
     var currentDeviceId: String = ""
 
@@ -45,7 +68,8 @@ class ConnectionManager: ObservableObject {
     func startPolling() {
         stopPolling()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            self?.pullClipboard()
+            guard let self = self, !self.selectedDeviceId.isEmpty else { return }
+            self.pullClipboard(from: self.selectedDeviceId)
         }
         logger.info("剪贴板轮询已启动 (3s)")
     }
@@ -60,14 +84,45 @@ class ConnectionManager: ObservableObject {
     init() {
         loadDevices()
         ensureIdentity()
+        var restoredURL = ""
         if let saved = KeychainHelper.read(key: "handoff_base_url"), !saved.isEmpty {
-            baseURL = saved
-            logger.warn("已恢复连接 (Keychain): \(saved)")
+            restoredURL = saved
         } else if let legacyURL = UserDefaults.standard.string(forKey: "handoff_baseURL"), !legacyURL.isEmpty {
-            baseURL = legacyURL
-            _ = KeychainHelper.save(key: "handoff_base_url", value: legacyURL)
-            UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
-            logger.warn("连接信息已迁移到 Keychain: \(legacyURL)")
+            restoredURL = legacyURL
+            if KeychainHelper.save(key: "handoff_base_url", value: legacyURL) {
+                UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
+                logger.warn("连接信息已迁移到 Keychain: \(legacyURL)")
+            } else {
+                logger.error("连接信息迁移到 Keychain 失败，保留旧记录")
+            }
+        }
+        // Older paired records may not contain an endpoint. The single saved URL
+        // can safely be assigned when exactly one Windows server was paired.
+        let windowsIndices = pairedDevices.indices.filter {
+            pairedDevices[$0].platform.lowercased() == "windows"
+        }
+        let endpoint = restoredURL.split(separator: ":")
+        if windowsIndices.count == 1, endpoint.count == 2,
+           let port = UInt16(endpoint[1]), pairedDevices[windowsIndices[0]].host.isEmpty {
+            pairedDevices[windowsIndices[0]].host = String(endpoint[0])
+            pairedDevices[windowsIndices[0]].port = port
+            saveDevices()
+        }
+        let selected = pairedDevices.first(where: {
+            $0.platform.lowercased() == "windows" && "\($0.host):\($0.port)" == restoredURL
+        }) ?? pairedDevices.first(where: { $0.platform.lowercased() == "windows" })
+        if let selected = selected {
+            selectedDeviceId = selected.deviceId
+            currentDeviceId = selected.deviceId
+            if !selected.host.isEmpty {
+                baseURL = "\(selected.host):\(selected.port)"
+                _ = KeychainHelper.save(key: "handoff_base_url", value: baseURL)
+                startPolling()
+            }
+        }
+        for index in pairedDevices.indices {
+            pairedDevices[index].isConnected = false
+            connectionStates[pairedDevices[index].deviceId] = .offline
         }
         logger.info("已加载 \(pairedDevices.count) 个已配对设备")
         NotificationCenter.default.addObserver(forName: ClipboardService.clipboardChangedNotification, object: nil, queue: .main) { [weak self] notification in
@@ -77,7 +132,35 @@ class ConnectionManager: ObservableObject {
         }
     }
 
-    private var pendingClipboard: String?
+    private struct PendingClipboard {
+        let content: String
+        let transferId: String
+    }
+    private var pendingClipboard: [String: PendingClipboard] = [:]
+    private var inFlightClipboardAttempt: [String: UUID] = [:]
+
+    private func feedbackKey(for serverId: String, kind: String, transferId: String) -> String {
+        "\(serverId):\(kind):\(transferId)"
+    }
+
+    private func clearClipboardFeedback(for serverId: String, kind: String) {
+        clipboardFeedback = clipboardFeedback.filter {
+            !($0.value.deviceId == serverId && $0.value.kind == kind)
+        }
+    }
+
+    private func showClipboardFeedback(_ message: String, for serverId: String = "general",
+                                       kind: String = "general", transferId: String = "",
+                                       error: Bool = false) {
+        let key = feedbackKey(for: serverId, kind: kind, transferId: transferId)
+        let feedback = ClipboardFeedback(deviceId: serverId, transferId: transferId,
+                                         kind: kind, message: message, isError: error)
+        clipboardFeedback[key] = feedback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self = self, self.clipboardFeedback[key]?.id == feedback.id else { return }
+            self.clipboardFeedback.removeValue(forKey: key)
+        }
+    }
 
     private func saveDevices() {
         if let data = try? JSONEncoder().encode(pairedDevices),
@@ -166,11 +249,11 @@ class ConnectionManager: ObservableObject {
 
         logger.info("QR 解析成功: host=\(host), port=\(port)")
 
-        baseURL = "\(host):\(port)"
-        logger.info("baseURL 已设置: \(baseURL)")
-
         let serverDeviceId = json["deviceId"] as? String ?? host
-        currentDeviceId = serverDeviceId
+        guard let validPort = UInt16(exactly: port), !serverDeviceId.isEmpty else {
+            connectionError = "二维码中的设备地址无效"
+            return false
+        }
 
         // Dedup: don't add the same device twice
         if pairedDevices.contains(where: { $0.deviceId == serverDeviceId }) {
@@ -180,60 +263,228 @@ class ConnectionManager: ObservableObject {
                 deviceId: serverDeviceId,
                 name: "Windows-\(host)",
                 platform: "windows",
-                isConnected: true,
+                isConnected: false,
                 host: host,
-                port: UInt16(port)
+                port: validPort
             )
             pairedDevices.append(device)
             saveDevices()
             logger.info("设备已添加到列表: \(device.name)")
         }
+        if let idx = pairedDevices.firstIndex(where: { $0.deviceId == serverDeviceId }) {
+            pairedDevices[idx].host = host
+            pairedDevices[idx].port = validPort
+            saveDevices()
+        }
+        selectedDeviceId = serverDeviceId
+        connectPairedDevice(serverDeviceId, host: host, port: validPort)
 
         return true
     }
 
     func pullClipboard() {
-        guard !baseURL.isEmpty else {
-            logger.warn("pullClipboard: baseURL not set")
+        pullClipboard(from: selectedDeviceId, manual: true)
+    }
+
+    func pullClipboard(from serverId: String, manual: Bool = false) {
+        guard connectionStates[serverId] == .connected,
+              let device = pairedDevices.first(where: { $0.deviceId == serverId }),
+              let url = URL(string: "http://\(device.host):\(device.port)/clipboard/latest") else {
+            logger.warn("pullClipboard: 目标设备未连接")
+            if manual { showClipboardFeedback("目标设备未连接", for: serverId, kind: "pull", error: true) }
             return
         }
-        let url = URL(string: "http://\(baseURL)/clipboard/latest")!
+        if manual { showClipboardFeedback("正在获取 \(device.name) 的剪贴板…", for: serverId, kind: "pull") }
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            if let error = error {
-                self?.logger.error("剪贴板请求失败: \(error.localizedDescription)")
-                return
-            }
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? NSDictionary,
-                  let payload = json["payload"] as? String, !payload.isEmpty else { return }
-            let hash = json["hash"] as? String ?? ""
             DispatchQueue.main.async {
                 guard let self = self else { return }
-                // Dedup: skip if same hash already received
-                if hash == self.lastRemoteClipboardHash { return }
-                // Protect local copy: don't overwrite if user just copied locally
-                let now = Date()
-                if now.timeIntervalSince(self.lastLocalCopyTime) < 2.0 { return }
-                self.lastRemoteClipboardHash = hash
-                self.clipboardContent = payload
-                ClipboardService.shared.setClipboard(payload)
-                self.logger.warn("剪贴板已同步 (\(payload.count) 字符)")
+                if let error = error {
+                    self.logger.error("剪贴板请求失败: \(error.localizedDescription)")
+                    if manual { self.showClipboardFeedback("获取 \(device.name) 的剪贴板失败", for: serverId, kind: "pull", error: true) }
+                    return
+                }
+                guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+                      let data = data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let payload = json["payload"] as? String, !payload.isEmpty,
+                      let hash = json["hash"] as? String, !hash.isEmpty else {
+                    if manual { self.showClipboardFeedback("\(device.name) 的剪贴板为空或不可用", for: serverId, kind: "pull", error: true) }
+                    return
+                }
+                if manual { self.clearClipboardFeedback(for: serverId, kind: "pull") }
+                self.receiveClipboard(payload, hash: hash, transferId: json["transferId"] as? String ?? "",
+                                      from: serverId, manual: manual)
             }
         }.resume()
     }
 
-    func sendClipboard(_ content: String) {
-        lastLocalCopyTime = Date()
-        if !baseURL.isEmpty && socket?.status == .connected {
-            socket?.emit("clipboard", ["payload": content])
-            pendingClipboard = nil
-            logger.warn("剪贴板已发送 (\(content.count) 字符)")
-        } else {
-            // Cache regardless of why — no URL, no socket, or not connected
-            pendingClipboard = content
-            let reason = baseURL.isEmpty ? "baseURL 为空" : "socket 未连接"
-            logger.warn("剪贴板已缓存 (\(content.count) 字符), \(reason)")
+    private func receiveClipboard(_ content: String, hash: String, transferId: String,
+                                  from serverId: String, manual: Bool) {
+        let name = pairedDevices.first(where: { $0.deviceId == serverId })?.name ?? "设备"
+        guard !content.isEmpty, !hash.isEmpty else {
+            if manual { showClipboardFeedback("\(name) 的剪贴板为空", for: serverId, kind: "receive", transferId: transferId, error: true) }
+            return
         }
+        let receiptKey = "\(serverId):\(transferId)"
+        let currentContent = UIPasteboard.general.string
+        if currentContent == content {
+            // Content can already match because another Windows service delivered
+            // it. Confirm this server's receipt without another pasteboard write.
+            lastRemoteClipboardHash = hash
+            clipboardContent = content
+            deferredReceiptKeys.remove(receiptKey)
+            if !transferId.isEmpty { rememberClipboardReceipt(true, key: receiptKey) }
+            emitClipboardReceipt(true, transferId: transferId, to: serverId)
+            if manual {
+                showClipboardFeedback("\(name)：剪贴板已是最新内容", for: serverId,
+                                      kind: "receive", transferId: transferId)
+            }
+            return
+        }
+        if !manual && !transferId.isEmpty && receiptOutcomes[receiptKey] == true { return }
+        guard Date().timeIntervalSince(lastLocalCopyTime) >= 2.0 else {
+            if manual {
+                showClipboardFeedback("刚复制了本机内容，请稍后重试", for: serverId,
+                                      kind: "receive", transferId: transferId)
+            } else {
+                let firstDeferral = deferredReceiptKeys.insert(receiptKey).inserted
+                if !transferId.isEmpty {
+                    rememberClipboardReceipt(false, key: receiptKey)
+                    emitClipboardReceipt(false, transferId: transferId, to: serverId,
+                                         error: "local-copy-protection")
+                }
+                if firstDeferral {
+                    let status = transferId.isEmpty
+                        ? "\(name)：本机刚复制内容，稍后可手动获取"
+                        : "\(name)：本机刚复制内容，稍后重试同步"
+                    showClipboardFeedback(status, for: serverId,
+                                          kind: "receive", transferId: transferId)
+                }
+            }
+            return
+        }
+        // An explicit pull represents a new user request. Once the local-copy
+        // guard expires, it may restore an older server value. Socket pushes
+        // still ignore transfers and hashes already received automatically.
+        if !manual && ((!transferId.isEmpty && receiptOutcomes[receiptKey] == true) ||
+                       (hash == lastRemoteClipboardHash && !deferredReceiptKeys.contains(receiptKey))) {
+            return
+        }
+        ClipboardService.shared.setClipboard(content)
+        guard UIPasteboard.general.string == content else {
+            deferredReceiptKeys.remove(receiptKey)
+            emitClipboardReceipt(false, transferId: transferId, to: serverId, error: "pasteboard write failed")
+            if transferId.isEmpty || receiptOutcomes[receiptKey] != false {
+                showClipboardFeedback("\(name)：写入 iOS 剪贴板失败", for: serverId, kind: "receive", transferId: transferId, error: true)
+            }
+            if !transferId.isEmpty { rememberClipboardReceipt(false, key: receiptKey) }
+            return
+        }
+        lastRemoteClipboardHash = hash
+        deferredReceiptKeys.remove(receiptKey)
+        if !transferId.isEmpty { rememberClipboardReceipt(true, key: receiptKey) }
+        clipboardContent = content
+        emitClipboardReceipt(true, transferId: transferId, to: serverId)
+        showClipboardFeedback("来自 \(name)，已复制到剪贴板", for: serverId, kind: "receive", transferId: transferId)
+        logger.warn("剪贴板已同步 (\(content.count) 字符)")
+    }
+
+    private func emitClipboardReceipt(_ success: Bool, transferId: String,
+                                      to serverId: String, error: String? = nil) {
+        guard !transferId.isEmpty, let socket = sockets[serverId]?.socket else { return }
+        var receipt: [String: Any] = [
+            "transferId": transferId, "deviceId": deviceId, "success": success
+        ]
+        if let error = error { receipt["error"] = error }
+        socket.emit("clipboard:received", receipt)
+    }
+
+    private func rememberClipboardReceipt(_ success: Bool, key: String) {
+        if receiptOutcomes[key] == nil { receiptOrder.append(key) }
+        receiptOutcomes[key] = success
+        while receiptOrder.count > 500 {
+            let oldest = receiptOrder.removeFirst()
+            receiptOutcomes.removeValue(forKey: oldest)
+            deferredReceiptKeys.remove(oldest)
+        }
+    }
+
+    func sendClipboard(_ content: String, manual: Bool = false) {
+        guard !content.isEmpty else {
+            if manual { showClipboardFeedback("iOS 剪贴板为空", error: true) }
+            return
+        }
+        lastLocalCopyTime = Date()
+        let transferId = UUID().uuidString
+        var deviceCount = 0
+        for device in pairedDevices where device.platform.lowercased() == "windows" {
+            deviceCount += 1
+            let pending = PendingClipboard(content: content, transferId: transferId)
+            // This is the sole desired transfer for this device. Callbacks from
+            // earlier transfers must not change it or its visible result.
+            clearClipboardFeedback(for: device.deviceId, kind: "send")
+            inFlightClipboardAttempt.removeValue(forKey: device.deviceId)
+            pendingClipboard[device.deviceId] = pending
+            if connectionStates[device.deviceId] == .connected,
+               let socket = sockets[device.deviceId]?.socket {
+                showClipboardFeedback("等待 \(device.name) 确认…", for: device.deviceId,
+                                      kind: "send", transferId: transferId)
+                sendClipboard(pending, to: device.deviceId, socket: socket)
+            } else {
+                showClipboardFeedback("\(device.name) 离线，连接后重试", for: device.deviceId,
+                                      kind: "send", transferId: transferId)
+            }
+        }
+        if deviceCount == 0 {
+            showClipboardFeedback("尚无已配对的 Windows 设备", error: true)
+        }
+    }
+
+    private func sendClipboard(_ pending: PendingClipboard, to serverId: String,
+                               socket: SocketIOClient, attempt: Int = 0) {
+        guard pendingClipboard[serverId]?.transferId == pending.transferId else { return }
+        let attemptId = UUID()
+        inFlightClipboardAttempt[serverId] = attemptId
+        socket.emitWithAck("clipboard", ["payload": pending.content, "transferId": pending.transferId])
+            .timingOut(after: 8) { [weak self] data in
+                DispatchQueue.main.async {
+                    guard let self = self,
+                          self.pendingClipboard[serverId]?.transferId == pending.transferId,
+                          self.inFlightClipboardAttempt[serverId] == attemptId else { return }
+                    let name = self.pairedDevices.first(where: { $0.deviceId == serverId })?.name ?? "设备"
+                    guard let result = data.first as? [String: Any],
+                          result["transferId"] as? String == pending.transferId,
+                          let success = result["success"] as? Bool else {
+                        let delay = min(Double(1 << min(attempt, 4)), 15.0)
+                        self.showClipboardFeedback("\(name) 未确认，正在重试…", for: serverId,
+                                                   kind: "send", transferId: pending.transferId)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                            guard let self = self,
+                                  self.pendingClipboard[serverId]?.transferId == pending.transferId,
+                                  self.inFlightClipboardAttempt[serverId] == attemptId,
+                                  self.connectionStates[serverId] == .connected,
+                                  let currentSocket = self.sockets[serverId]?.socket,
+                                  currentSocket.status == .connected else { return }
+                            self.sendClipboard(pending, to: serverId, socket: currentSocket,
+                                               attempt: attempt + 1)
+                        }
+                        return
+                    }
+                    self.pendingClipboard.removeValue(forKey: serverId)
+                    self.inFlightClipboardAttempt.removeValue(forKey: serverId)
+                    if success {
+                        self.showClipboardFeedback("已同步到 \(name)", for: serverId,
+                                                   kind: "send", transferId: pending.transferId)
+                    } else {
+                        let reason = result["error"] as? String
+                        let detail = reason == "clipboard payload too large"
+                            ? "内容超过 \(name) 允许的剪贴板大小"
+                            : "\(name) 写入剪贴板失败"
+                        self.showClipboardFeedback(detail, for: serverId,
+                                                   kind: "send", transferId: pending.transferId, error: true)
+                    }
+                }
+            }
     }
 
     private func receiveMessage() {
@@ -269,10 +520,11 @@ class ConnectionManager: ObservableObject {
         DispatchQueue.main.async {
             switch type {
             case "clipboard":
-                self.clipboardContent = json["payload"] as? String
-                if let content = self.clipboardContent {
-                    ClipboardService.shared.setClipboard(content)
-                    self.logger.info("剪贴板已更新 (\(content.count) 字符)")
+                if let content = json["payload"] as? String,
+                   let hash = json["hash"] as? String {
+                    self.receiveClipboard(content, hash: hash,
+                                          transferId: json["transferId"] as? String ?? "",
+                                          from: self.selectedDeviceId, manual: false)
                 }
             case "file:offer":
                 if let filename = json["filename"] as? String,
@@ -318,9 +570,82 @@ class ConnectionManager: ObservableObject {
         logger.info("新设备身份已生成 (Keychain): \(deviceId)")
     }
 
+    func restorePairedConnections(using discoveredDevices: [DiscoveredDevice]) {
+        for device in pairedDevices where device.platform.lowercased() == "windows" {
+            let discovered = discoveredDevices.first {
+                !$0.deviceId.isEmpty && $0.deviceId == device.deviceId &&
+                $0.platform.lowercased() == "windows"
+            }
+            let host = discovered?.host ?? device.host
+            let port = discovered?.port ?? device.port
+            if let discovered = discovered, host != device.host || port != device.port {
+                updateDiscoveredDevice(discovered)
+            } else {
+                connectPairedDevice(device.deviceId, host: host, port: port)
+            }
+        }
+    }
+
+    func updateDiscoveredDevice(_ device: DiscoveredDevice) {
+        guard !device.deviceId.isEmpty, device.platform.lowercased() == "windows",
+              pairedDevices.contains(where: {
+                  $0.deviceId == device.deviceId && $0.platform.lowercased() == "windows"
+              }) else { return }
+        // A Bonjour TXT record only proposes an endpoint. Persist it after the
+        // server confirms its own device ID through the socket handshake.
+        connectPairedDevice(device.deviceId, host: device.host, port: device.port)
+    }
+
+    func connectToDiscoveredDevice(_ device: DiscoveredDevice) {
+        guard device.platform.lowercased() == "windows", !device.deviceId.isEmpty else {
+            connectionError = "发现的设备缺少 Windows 身份，请扫描二维码连接"
+            return
+        }
+        if !pairedDevices.contains(where: { $0.deviceId == device.deviceId }) {
+            pairedDevices.append(PairedDevice(deviceId: device.deviceId, name: device.name,
+                                              platform: "windows", host: device.host, port: device.port))
+            pendingManualDeviceIds.insert(device.deviceId)
+        } else {
+            selectedDeviceId = device.deviceId
+        }
+        updateDiscoveredDevice(device)
+    }
+
     func connectSocketIO(host: String, port: Int) {
-        guard let url = URL(string: "http://\(host):\(port)") else { return }
-        manager = SocketManager(socketURL: url, config: [
+        guard let validPort = UInt16(exactly: port),
+              let device = pairedDevices.first(where: { $0.host == host && $0.port == validPort }) else { return }
+        connectPairedDevice(device.deviceId, host: host, port: validPort)
+    }
+
+    private func setState(_ state: DeviceConnectionState, for serverId: String) {
+        connectionStates[serverId] = state
+        if let index = pairedDevices.firstIndex(where: { $0.deviceId == serverId }) {
+            pairedDevices[index].isConnected = state == .connected
+            if state == .connected { pairedDevices[index].lastSeen = Date() }
+        }
+    }
+
+    private func connectPairedDevice(_ serverId: String, host: String, port: UInt16) {
+        guard !host.isEmpty, port > 0,
+              pairedDevices.contains(where: { $0.deviceId == serverId && $0.platform.lowercased() == "windows" }),
+              let url = URL(string: "http://\(host):\(port)") else {
+            setState(.offline, for: serverId)
+            return
+        }
+        if let existing = sockets[serverId] {
+            if existing.host == host && existing.port == port {
+                if existing.socket.status == .disconnected {
+                    setState(.reconnecting, for: serverId)
+                    existing.socket.connect()
+                }
+                return
+            }
+            existing.socket.removeAllHandlers()
+            existing.socket.disconnect()
+            sockets.removeValue(forKey: serverId)
+        }
+        setState(.connecting, for: serverId)
+        let manager = SocketManager(socketURL: url, config: [
             .log(true),
             .reconnects(true),
             .reconnectAttempts(-1),
@@ -328,95 +653,95 @@ class ConnectionManager: ObservableObject {
             .reconnectWaitMax(15),
             .extraHeaders(["User-Agent": "Handoff-iOS"])
         ])
-        socket = manager?.defaultSocket
+        let socket = manager.defaultSocket
+        sockets[serverId] = DeviceSocket(manager: manager, socket: socket, host: host, port: port)
 
-        socket?.on(clientEvent: .connect) { [weak self] data, ack in
-            self?.logger.warn("socket.io 已连接")
-            self?.connectionError = nil
-            // Auth with device identity
-            self?.socket?.emit("auth", [
-                "deviceId": self?.deviceId ?? "",
+        socket.on(clientEvent: .connect) { [weak self] _, _ in
+            guard let self = self else { return }
+            self.logger.warn("socket.io 已连接: \(serverId)")
+            self.connectionError = nil
+            socket.emit("auth", [
+                "deviceId": self.deviceId,
                 "deviceName": UIDevice.current.name,
                 "platform": "ios"
             ])
-            // Flush any pending clipboard content first
-            if let pending = self?.pendingClipboard {
-                self?.socket?.emit("clipboard", ["payload": pending])
-                self?.logger.warn("缓存的剪贴板已发送 (\(pending.count) 字符)")
-                self?.pendingClipboard = nil
+        }
+
+        socket.on("auth:ok") { [weak self] data, _ in
+            guard let self = self else { return }
+            guard let confirmation = data.first as? [String: Any],
+                  let confirmedServerId = confirmation["serverDeviceId"] as? String,
+                  confirmedServerId == serverId else {
+                self.connectionError = "服务端身份不匹配: \(host):\(port)"
+                self.logger.error("拒绝服务端身份不匹配的连接: \(serverId) @ \(host):\(port)")
+                socket.removeAllHandlers()
+                socket.disconnect()
+                self.sockets.removeValue(forKey: serverId)
+                self.setState(.offline, for: serverId)
+                if self.pendingManualDeviceIds.remove(serverId) != nil {
+                    self.pairedDevices.removeAll { $0.deviceId == serverId }
+                    self.connectionStates.removeValue(forKey: serverId)
+                }
+                return
             }
-            // Check clipboard on reconnect (may have changed while disconnected)
+            if let index = self.pairedDevices.firstIndex(where: { $0.deviceId == serverId }),
+               self.pairedDevices[index].host != host || self.pairedDevices[index].port != port {
+                self.pairedDevices[index].host = host
+                self.pairedDevices[index].port = port
+                if self.selectedDeviceId == serverId { self.selectedDeviceId = serverId }
+            }
+            self.setState(.connected, for: serverId)
+            if self.pendingManualDeviceIds.remove(serverId) != nil {
+                self.selectedDeviceId = serverId
+            }
+            self.logger.info("设备已注册: \(self.deviceId), serverId=\(serverId)")
+            if let pending = self.pendingClipboard[serverId] {
+                self.showClipboardFeedback("正在重试发送到 \(self.pairedDevices.first(where: { $0.deviceId == serverId })?.name ?? "设备")…",
+                                           for: serverId, kind: "send", transferId: pending.transferId)
+                self.sendClipboard(pending, to: serverId, socket: socket)
+            }
+            self.saveDevices()
             ClipboardService.shared.checkNow()
         }
 
-        socket?.on("auth:ok") { [weak self] data, ack in
-            guard let self = self else { return }
-            self.logger.info("设备已注册: \(self.deviceId), serverId=\(self.currentDeviceId)")
-            let serverId = self.currentDeviceId
-            self.logger.warn("配对检查: serverId='\(serverId)', pairedDevices=\(self.pairedDevices.count)个, baseURL=\(self.baseURL)")
-            if let idx = self.pairedDevices.firstIndex(where: { $0.deviceId == serverId }) {
-                self.pairedDevices[idx].isConnected = true
-                self.pairedDevices[idx].lastSeen = Date()
-            } else if !serverId.isEmpty {
-                // New device from Bonjour/QR — create paired entry
-                let parts = self.baseURL.split(separator: ":")
-                let newDevice = PairedDevice(
-                    deviceId: serverId,
-                    name: "Windows-\(parts.first ?? "?")",
-                    platform: "windows",
-                    isConnected: true,
-                    lastSeen: Date(),
-                    host: parts.count == 2 ? String(parts[0]) : "",
-                    port: parts.count == 2 ? UInt16(parts[1]) ?? 19528 : 19528
-                )
-                self.pairedDevices.append(newDevice)
-                self.logger.info("新设备已配对: \(serverId)")
-            }
-            self.saveDevices()
-        }
-
-        socket?.on("clipboard") { [weak self] data, ack in
+        socket.on("clipboard") { [weak self] data, _ in
             guard let self = self,
-                  let items = data as? [NSDictionary],
-                  let msg = items.first else { return }
-            let payload = msg["payload"] as? String ?? ""
-            let hash = msg["hash"] as? String ?? ""
-            if !payload.isEmpty && hash != self.lastRemoteClipboardHash {
-                let now = Date()
-                if now.timeIntervalSince(self.lastLocalCopyTime) > 2.0 {
-                    self.lastRemoteClipboardHash = hash
-                    ClipboardService.shared.setClipboard(payload)
-                    self.clipboardContent = payload
-                    self.logger.warn("剪贴板已同步 (\(payload.count) 字符)")
-                }
+                  let msg = data.first as? [String: Any],
+                  let payload = msg["payload"] as? String,
+                  let hash = msg["hash"] as? String else { return }
+            self.receiveClipboard(payload, hash: hash,
+                                  transferId: msg["transferId"] as? String ?? "",
+                                  from: serverId, manual: false)
+        }
+
+        socket.on(clientEvent: .disconnect) { [weak self] _, _ in
+            self?.logger.warn("socket.io 断开: \(serverId)")
+            self?.setState(.reconnecting, for: serverId)
+            if let pending = self?.pendingClipboard[serverId] {
+                let name = self?.pairedDevices.first(where: { $0.deviceId == serverId })?.name ?? "设备"
+                self?.showClipboardFeedback("\(name) 重连后继续发送", for: serverId,
+                                            kind: "send", transferId: pending.transferId)
             }
         }
 
-        socket?.on(clientEvent: .disconnect) { [weak self] data, ack in
-            self?.logger.warn("socket.io 断开")
-            if let idx = self?.pairedDevices.firstIndex(where: { $0.deviceId == self?.currentDeviceId }) {
-                self?.pairedDevices[idx].isConnected = false
-                self?.saveDevices()
-            }
-        }
-
-        socket?.on(clientEvent: .error) { [weak self] data, ack in
-            // Log but don't surface — socket.io will auto-reconnect
-            self?.logger.warn("socket.io 连接中 (\(host):\(port)): \(data)")
+        socket.on(clientEvent: .error) { [weak self] data, _ in
+            self?.setState(.reconnecting, for: serverId)
+            self?.logger.warn("socket.io 重连中 (\(host):\(port)): \(data)")
         }
 
         logger.warn("正在连接 socket.io: \(host):\(port)")
-        socket?.connect()
+        socket.connect()
     }
 
     func reconnect() {
         logger.warn("手动重连触发")
-        socket?.disconnect()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.socket?.connect()
-            DiscoveryService.shared.startBrowsing()
-            ClipboardService.shared.checkNow()
+        for (serverId, entry) in sockets where entry.socket.status == .disconnected {
+            setState(.reconnecting, for: serverId)
+            entry.socket.connect()
         }
+        restorePairedConnections(using: DiscoveryService.shared.discoveredDevices)
+        DiscoveryService.shared.startBrowsing()
+        ClipboardService.shared.checkNow()
     }
 
     @Published var uploadProgress: Double = 0
