@@ -118,6 +118,3 @@
 - [x] **Step 1: Check event and model consistency.** Confirm device IDs, Bonjour endpoint fields, connection status, transfer IDs, event names, and ACK result shapes agree across Node, preload/renderer, and Swift.
 - [x] **Step 2: Check user-facing state transitions.** Confirm “reachable” never means paired/online, offline status is per device, clipboard feedback is tied to a write/delivery result, and duplicate events do not spam.
 - [x] **Step 3: Review the final diff.** Do not add or run tests; report any platform build checks that were not run.
-
-
-
