@@ -37,9 +37,9 @@ struct ContentView: View {
                 Section("连接状态") {
                     HStack {
                         Circle()
-                            .fill(connectionManager.baseURL.isEmpty ? Color.gray : Color.green)
+                            .fill(connectionManager.connectionStates.values.contains(.connected) ? Color.green : Color.gray)
                             .frame(width: 10, height: 10)
-                        Text(connectionManager.baseURL.isEmpty ? "未配对" : "已配对: \(connectionManager.baseURL)")
+                        Text("\(connectionManager.connectionStates.values.filter { $0 == .connected }.count) 台设备已连接")
                             .font(.subheadline)
                     }
                     if let error = connectionManager.connectionError {
@@ -54,7 +54,8 @@ struct ContentView: View {
                 Section("发现的设备") {
                     let unpaired = discoveryService.discoveredDevices.filter { device in
                         !connectionManager.pairedDevices.contains { paired in
-                            paired.host == device.host && paired.port == device.port
+                            (!device.deviceId.isEmpty && paired.deviceId == device.deviceId) ||
+                                (paired.host == device.host && paired.port == device.port)
                         }
                     }
                     if unpaired.isEmpty {
@@ -68,8 +69,7 @@ struct ContentView: View {
                             }
                             Spacer()
                             Button("连接") {
-                                connectionManager.currentDeviceId = device.deviceId
-                                connectionManager.baseURL = "\(device.host):\(device.port)"
+                                connectionManager.connectToDiscoveredDevice(device)
                                 logger.info("手动连接设备: \(device.name)")
                             }
                         }
@@ -82,13 +82,19 @@ struct ContentView: View {
                         Text("暂无配对设备").foregroundColor(.secondary)
                     }
                     ForEach(connectionManager.pairedDevices) { device in
-                        HStack {
-                            Image(systemName: "desktopcomputer")
-                            VStack(alignment: .leading) {
-                                Text(device.name)
-                                Text(device.isConnected ? "在线" : "离线")
-                                    .font(.caption)
-                                    .foregroundColor(device.isConnected ? .green : .secondary)
+                        if device.platform.lowercased() == "windows" {
+                            HStack {
+                                Image(systemName: connectionManager.selectedDeviceId == device.deviceId
+                                      ? "checkmark.circle.fill" : "desktopcomputer")
+                                VStack(alignment: .leading) {
+                                    Text(device.name)
+                                    Text(connectionManager.connectionStates[device.deviceId, default: .offline].label)
+                                        .font(.caption)
+                                        .foregroundColor(connectionManager.connectionStates[device.deviceId] == .connected ? .green : .secondary)
+                                }
+                                Spacer()
+                                Button("选择") { connectionManager.selectedDeviceId = device.deviceId }
+                                    .buttonStyle(.borderless)
                             }
                         }
                     }
@@ -96,10 +102,15 @@ struct ContentView: View {
 
                 // Clipboard
                 Section("剪贴板") {
-                    Button(action: { connectionManager.pullClipboard() }) {
-                        Label("获取 Windows 剪贴板", systemImage: "arrow.down.doc")
+                    if let selected = connectionManager.pairedDevices.first(where: { $0.deviceId == connectionManager.selectedDeviceId }) {
+                        Text("手动操作目标：\(selected.name)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    .disabled(connectionManager.baseURL.isEmpty)
+                    Button(action: { connectionManager.pullClipboard(from: connectionManager.selectedDeviceId) }) {
+                        Label("获取所选 Windows 剪贴板", systemImage: "arrow.down.doc")
+                    }
+                    .disabled(connectionManager.connectionStates[connectionManager.selectedDeviceId] != .connected)
 
                     Button(action: {
                         if let text = UIPasteboard.general.string, !text.isEmpty {
@@ -108,9 +119,9 @@ struct ContentView: View {
                             logger.warn("iOS 剪贴板为空")
                         }
                     }) {
-                        Label("发送 iOS 剪贴板", systemImage: "arrow.up.doc")
+                        Label("发送到所有已连接设备", systemImage: "arrow.up.doc")
                     }
-                    .disabled(connectionManager.baseURL.isEmpty)
+                    .disabled(!connectionManager.connectionStates.values.contains(.connected))
 
                     if let content = connectionManager.clipboardContent, !content.isEmpty {
                         Text("最新剪贴板: \(content.prefix(100))")

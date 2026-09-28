@@ -10,29 +10,36 @@ class ConnectionManager: ObservableObject {
     @Published var clipboardContent: String?
     @Published var isConnecting = false
     @Published var connectionError: String?
+    @Published private(set) var connectionStates: [String: DeviceConnectionState] = [:]
+    @Published var selectedDeviceId: String = "" {
+        didSet {
+            guard let device = pairedDevices.first(where: { $0.deviceId == selectedDeviceId }) else { return }
+            baseURL = "\(device.host):\(device.port)"
+            currentDeviceId = device.deviceId
+        }
+    }
 
+    // Retained for file uploads and the selected clipboard target.
     var baseURL: String = "" {
         didSet {
             if !baseURL.isEmpty {
-                UserDefaults.standard.set(baseURL, forKey: "handoff_baseURL")
+                _ = KeychainHelper.save(key: "handoff_base_url", value: baseURL)
                 startPolling()
-                let parts = baseURL.split(separator: ":")
-                if parts.count == 2, let portNum = Int(parts[1]) {
-                    connectSocketIO(host: String(parts[0]), port: portNum)
-                }
             } else {
-                UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
                 stopPolling()
-                socket?.disconnect()
-                socket = nil
             }
         }
     }
     private var webSocket: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
     private var pollTimer: Timer?
-    private var manager: SocketManager?
-    private var socket: SocketIOClient?
+    private struct DeviceSocket {
+        let manager: SocketManager
+        let socket: SocketIOClient
+        let host: String
+        let port: UInt16
+    }
+    private var sockets: [String: DeviceSocket] = [:]
 
     private var lastRemoteClipboardHash: String = ""
     private var lastLocalCopyTime: Date = Date()
@@ -45,7 +52,8 @@ class ConnectionManager: ObservableObject {
     func startPolling() {
         stopPolling()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            self?.pullClipboard()
+            guard let self = self, !self.selectedDeviceId.isEmpty else { return }
+            self.pullClipboard(from: self.selectedDeviceId)
         }
         logger.info("剪贴板轮询已启动 (3s)")
     }
@@ -62,12 +70,31 @@ class ConnectionManager: ObservableObject {
         ensureIdentity()
         if let saved = KeychainHelper.read(key: "handoff_base_url"), !saved.isEmpty {
             baseURL = saved
-            logger.warn("已恢复连接 (Keychain): \(saved)")
         } else if let legacyURL = UserDefaults.standard.string(forKey: "handoff_baseURL"), !legacyURL.isEmpty {
             baseURL = legacyURL
-            _ = KeychainHelper.save(key: "handoff_base_url", value: legacyURL)
             UserDefaults.standard.removeObject(forKey: "handoff_baseURL")
             logger.warn("连接信息已迁移到 Keychain: \(legacyURL)")
+        }
+        // Older paired records may not contain an endpoint. The single saved URL
+        // can safely be assigned when exactly one Windows server was paired.
+        let windowsIndices = pairedDevices.indices.filter {
+            pairedDevices[$0].platform.lowercased() == "windows"
+        }
+        let endpoint = baseURL.split(separator: ":")
+        if windowsIndices.count == 1, endpoint.count == 2,
+           let port = UInt16(endpoint[1]), pairedDevices[windowsIndices[0]].host.isEmpty {
+            pairedDevices[windowsIndices[0]].host = String(endpoint[0])
+            pairedDevices[windowsIndices[0]].port = port
+            saveDevices()
+        }
+        if let savedSelection = pairedDevices.first(where: { "\($0.host):\($0.port)" == baseURL }) {
+            selectedDeviceId = savedSelection.deviceId
+        } else if let first = pairedDevices.first {
+            selectedDeviceId = first.deviceId
+        }
+        for index in pairedDevices.indices {
+            pairedDevices[index].isConnected = false
+            connectionStates[pairedDevices[index].deviceId] = .offline
         }
         logger.info("已加载 \(pairedDevices.count) 个已配对设备")
         NotificationCenter.default.addObserver(forName: ClipboardService.clipboardChangedNotification, object: nil, queue: .main) { [weak self] notification in
@@ -77,7 +104,7 @@ class ConnectionManager: ObservableObject {
         }
     }
 
-    private var pendingClipboard: String?
+    private var pendingClipboard: [String: String] = [:]
 
     private func saveDevices() {
         if let data = try? JSONEncoder().encode(pairedDevices),
@@ -166,11 +193,11 @@ class ConnectionManager: ObservableObject {
 
         logger.info("QR 解析成功: host=\(host), port=\(port)")
 
-        baseURL = "\(host):\(port)"
-        logger.info("baseURL 已设置: \(baseURL)")
-
         let serverDeviceId = json["deviceId"] as? String ?? host
-        currentDeviceId = serverDeviceId
+        guard let validPort = UInt16(exactly: port), !serverDeviceId.isEmpty else {
+            connectionError = "二维码中的设备地址无效"
+            return false
+        }
 
         // Dedup: don't add the same device twice
         if pairedDevices.contains(where: { $0.deviceId == serverDeviceId }) {
@@ -180,24 +207,36 @@ class ConnectionManager: ObservableObject {
                 deviceId: serverDeviceId,
                 name: "Windows-\(host)",
                 platform: "windows",
-                isConnected: true,
+                isConnected: false,
                 host: host,
-                port: UInt16(port)
+                port: validPort
             )
             pairedDevices.append(device)
             saveDevices()
             logger.info("设备已添加到列表: \(device.name)")
         }
+        if let idx = pairedDevices.firstIndex(where: { $0.deviceId == serverDeviceId }) {
+            pairedDevices[idx].host = host
+            pairedDevices[idx].port = validPort
+            saveDevices()
+        }
+        selectedDeviceId = serverDeviceId
+        connectPairedDevice(serverDeviceId, host: host, port: validPort)
 
         return true
     }
 
     func pullClipboard() {
-        guard !baseURL.isEmpty else {
-            logger.warn("pullClipboard: baseURL not set")
+        pullClipboard(from: selectedDeviceId)
+    }
+
+    func pullClipboard(from serverId: String) {
+        guard connectionStates[serverId] == .connected,
+              let device = pairedDevices.first(where: { $0.deviceId == serverId }),
+              let url = URL(string: "http://\(device.host):\(device.port)/clipboard/latest") else {
+            logger.warn("pullClipboard: 目标设备未连接")
             return
         }
-        let url = URL(string: "http://\(baseURL)/clipboard/latest")!
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             if let error = error {
                 self?.logger.error("剪贴板请求失败: \(error.localizedDescription)")
@@ -224,15 +263,15 @@ class ConnectionManager: ObservableObject {
 
     func sendClipboard(_ content: String) {
         lastLocalCopyTime = Date()
-        if !baseURL.isEmpty && socket?.status == .connected {
-            socket?.emit("clipboard", ["payload": content])
-            pendingClipboard = nil
-            logger.warn("剪贴板已发送 (\(content.count) 字符)")
-        } else {
-            // Cache regardless of why — no URL, no socket, or not connected
-            pendingClipboard = content
-            let reason = baseURL.isEmpty ? "baseURL 为空" : "socket 未连接"
-            logger.warn("剪贴板已缓存 (\(content.count) 字符), \(reason)")
+        for device in pairedDevices where device.platform.lowercased() == "windows" {
+            if connectionStates[device.deviceId] == .connected,
+               let socket = sockets[device.deviceId]?.socket {
+                socket.emit("clipboard", ["payload": content])
+                pendingClipboard.removeValue(forKey: device.deviceId)
+                logger.warn("剪贴板已发送到 \(device.name) (\(content.count) 字符)")
+            } else {
+                pendingClipboard[device.deviceId] = content
+            }
         }
     }
 
@@ -318,9 +357,87 @@ class ConnectionManager: ObservableObject {
         logger.info("新设备身份已生成 (Keychain): \(deviceId)")
     }
 
+    func restorePairedConnections(using discoveredDevices: [DiscoveredDevice]) {
+        for device in pairedDevices where device.platform.lowercased() == "windows" {
+            let discovered = discoveredDevices.first {
+                !$0.deviceId.isEmpty && $0.deviceId == device.deviceId &&
+                $0.platform.lowercased() == "windows"
+            }
+            let host = discovered?.host ?? device.host
+            let port = discovered?.port ?? device.port
+            if let discovered = discovered, host != device.host || port != device.port {
+                updateDiscoveredDevice(discovered)
+            } else {
+                connectPairedDevice(device.deviceId, host: host, port: port)
+            }
+        }
+    }
+
+    func updateDiscoveredDevice(_ device: DiscoveredDevice) {
+        guard !device.deviceId.isEmpty, device.platform.lowercased() == "windows",
+              let index = pairedDevices.firstIndex(where: {
+                  $0.deviceId == device.deviceId && $0.platform.lowercased() == "windows"
+              }) else { return }
+        let changed = pairedDevices[index].host != device.host || pairedDevices[index].port != device.port
+        if changed {
+            pairedDevices[index].host = device.host
+            pairedDevices[index].port = device.port
+            pairedDevices[index].lastSeen = Date()
+            saveDevices()
+            if selectedDeviceId == device.deviceId { selectedDeviceId = device.deviceId }
+        }
+        connectPairedDevice(device.deviceId, host: device.host, port: device.port)
+    }
+
+    func connectToDiscoveredDevice(_ device: DiscoveredDevice) {
+        guard device.platform.lowercased() == "windows", !device.deviceId.isEmpty else {
+            connectionError = "发现的设备缺少 Windows 身份，请扫描二维码连接"
+            return
+        }
+        if !pairedDevices.contains(where: { $0.deviceId == device.deviceId }) {
+            pairedDevices.append(PairedDevice(deviceId: device.deviceId, name: device.name,
+                                              platform: "windows", host: device.host, port: device.port))
+            saveDevices()
+        }
+        selectedDeviceId = device.deviceId
+        updateDiscoveredDevice(device)
+    }
+
     func connectSocketIO(host: String, port: Int) {
-        guard let url = URL(string: "http://\(host):\(port)") else { return }
-        manager = SocketManager(socketURL: url, config: [
+        guard let validPort = UInt16(exactly: port),
+              let device = pairedDevices.first(where: { $0.host == host && $0.port == validPort }) else { return }
+        connectPairedDevice(device.deviceId, host: host, port: validPort)
+    }
+
+    private func setState(_ state: DeviceConnectionState, for serverId: String) {
+        connectionStates[serverId] = state
+        if let index = pairedDevices.firstIndex(where: { $0.deviceId == serverId }) {
+            pairedDevices[index].isConnected = state == .connected
+            if state == .connected { pairedDevices[index].lastSeen = Date() }
+        }
+    }
+
+    private func connectPairedDevice(_ serverId: String, host: String, port: UInt16) {
+        guard !host.isEmpty, port > 0,
+              pairedDevices.contains(where: { $0.deviceId == serverId && $0.platform.lowercased() == "windows" }),
+              let url = URL(string: "http://\(host):\(port)") else {
+            setState(.offline, for: serverId)
+            return
+        }
+        if let existing = sockets[serverId] {
+            if existing.host == host && existing.port == port {
+                if existing.socket.status == .disconnected && connectionStates[serverId] == .offline {
+                    setState(.reconnecting, for: serverId)
+                    existing.socket.connect()
+                }
+                return
+            }
+            existing.socket.removeAllHandlers()
+            existing.socket.disconnect()
+            sockets.removeValue(forKey: serverId)
+        }
+        setState(.connecting, for: serverId)
+        let manager = SocketManager(socketURL: url, config: [
             .log(true),
             .reconnects(true),
             .reconnectAttempts(-1),
@@ -328,54 +445,32 @@ class ConnectionManager: ObservableObject {
             .reconnectWaitMax(15),
             .extraHeaders(["User-Agent": "Handoff-iOS"])
         ])
-        socket = manager?.defaultSocket
+        let socket = manager.defaultSocket
+        sockets[serverId] = DeviceSocket(manager: manager, socket: socket, host: host, port: port)
 
-        socket?.on(clientEvent: .connect) { [weak self] data, ack in
-            self?.logger.warn("socket.io 已连接")
-            self?.connectionError = nil
-            // Auth with device identity
-            self?.socket?.emit("auth", [
-                "deviceId": self?.deviceId ?? "",
+        socket.on(clientEvent: .connect) { [weak self] _, _ in
+            guard let self = self else { return }
+            self.logger.warn("socket.io 已连接: \(serverId)")
+            self.connectionError = nil
+            socket.emit("auth", [
+                "deviceId": self.deviceId,
                 "deviceName": UIDevice.current.name,
                 "platform": "ios"
             ])
-            // Flush any pending clipboard content first
-            if let pending = self?.pendingClipboard {
-                self?.socket?.emit("clipboard", ["payload": pending])
-                self?.logger.warn("缓存的剪贴板已发送 (\(pending.count) 字符)")
-                self?.pendingClipboard = nil
+        }
+
+        socket.on("auth:ok") { [weak self] _, _ in
+            guard let self = self else { return }
+            self.setState(.connected, for: serverId)
+            self.logger.info("设备已注册: \(self.deviceId), serverId=\(serverId)")
+            if let pending = self.pendingClipboard.removeValue(forKey: serverId) {
+                socket.emit("clipboard", ["payload": pending])
             }
-            // Check clipboard on reconnect (may have changed while disconnected)
+            self.saveDevices()
             ClipboardService.shared.checkNow()
         }
 
-        socket?.on("auth:ok") { [weak self] data, ack in
-            guard let self = self else { return }
-            self.logger.info("设备已注册: \(self.deviceId), serverId=\(self.currentDeviceId)")
-            let serverId = self.currentDeviceId
-            self.logger.warn("配对检查: serverId='\(serverId)', pairedDevices=\(self.pairedDevices.count)个, baseURL=\(self.baseURL)")
-            if let idx = self.pairedDevices.firstIndex(where: { $0.deviceId == serverId }) {
-                self.pairedDevices[idx].isConnected = true
-                self.pairedDevices[idx].lastSeen = Date()
-            } else if !serverId.isEmpty {
-                // New device from Bonjour/QR — create paired entry
-                let parts = self.baseURL.split(separator: ":")
-                let newDevice = PairedDevice(
-                    deviceId: serverId,
-                    name: "Windows-\(parts.first ?? "?")",
-                    platform: "windows",
-                    isConnected: true,
-                    lastSeen: Date(),
-                    host: parts.count == 2 ? String(parts[0]) : "",
-                    port: parts.count == 2 ? UInt16(parts[1]) ?? 19528 : 19528
-                )
-                self.pairedDevices.append(newDevice)
-                self.logger.info("新设备已配对: \(serverId)")
-            }
-            self.saveDevices()
-        }
-
-        socket?.on("clipboard") { [weak self] data, ack in
+        socket.on("clipboard") { [weak self] data, _ in
             guard let self = self,
                   let items = data as? [NSDictionary],
                   let msg = items.first else { return }
@@ -392,31 +487,29 @@ class ConnectionManager: ObservableObject {
             }
         }
 
-        socket?.on(clientEvent: .disconnect) { [weak self] data, ack in
-            self?.logger.warn("socket.io 断开")
-            if let idx = self?.pairedDevices.firstIndex(where: { $0.deviceId == self?.currentDeviceId }) {
-                self?.pairedDevices[idx].isConnected = false
-                self?.saveDevices()
-            }
+        socket.on(clientEvent: .disconnect) { [weak self] _, _ in
+            self?.logger.warn("socket.io 断开: \(serverId)")
+            self?.setState(.reconnecting, for: serverId)
         }
 
-        socket?.on(clientEvent: .error) { [weak self] data, ack in
-            // Log but don't surface — socket.io will auto-reconnect
-            self?.logger.warn("socket.io 连接中 (\(host):\(port)): \(data)")
+        socket.on(clientEvent: .error) { [weak self] data, _ in
+            self?.setState(.reconnecting, for: serverId)
+            self?.logger.warn("socket.io 重连中 (\(host):\(port)): \(data)")
         }
 
         logger.warn("正在连接 socket.io: \(host):\(port)")
-        socket?.connect()
+        socket.connect()
     }
 
     func reconnect() {
         logger.warn("手动重连触发")
-        socket?.disconnect()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.socket?.connect()
-            DiscoveryService.shared.startBrowsing()
-            ClipboardService.shared.checkNow()
+        for (serverId, entry) in sockets where entry.socket.status == .disconnected {
+            setState(.reconnecting, for: serverId)
+            entry.socket.connect()
         }
+        restorePairedConnections(using: DiscoveryService.shared.discoveredDevices)
+        DiscoveryService.shared.startBrowsing()
+        ClipboardService.shared.checkNow()
     }
 
     @Published var uploadProgress: Double = 0

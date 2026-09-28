@@ -4,6 +4,7 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
     static let shared = DiscoveryService()
 
     @Published var discoveredDevices: [DiscoveredDevice] = []
+    var onDeviceDiscovered: ((DiscoveredDevice) -> Void)?
 
     private var browser: NetServiceBrowser?
     private var resolvingServiceNames: Set<String> = []
@@ -138,11 +139,17 @@ class DiscoveryService: NSObject, ObservableObject, NetServiceBrowserDelegate, N
             deviceId: info["deviceId"] ?? ""
         )
         let displayName = info["deviceName"] ?? sender.name
-        if !discoveredDevices.contains(where: { $0.name == displayName }) {
-            DispatchQueue.main.async { [weak self] in
-                self?.discoveredDevices.append(device)
-                self?.logger.info("设备已发现: \(displayName) @ \(ipString):\(port)")
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            if let index = self.discoveredDevices.firstIndex(where: {
+                !device.deviceId.isEmpty ? $0.deviceId == device.deviceId : $0.name == displayName
+            }) {
+                self.discoveredDevices[index] = device
+            } else {
+                self.discoveredDevices.append(device)
             }
+            self.onDeviceDiscovered?(device)
+            self.logger.info("设备已发现: \(displayName) @ \(ipString):\(port)")
         }
     }
 }
