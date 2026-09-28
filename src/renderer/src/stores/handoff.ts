@@ -10,6 +10,17 @@ export interface PairedDevice {
   lastIp: string
 }
 
+export interface DiscoveredPeer {
+  discoveryId: string
+  deviceId?: string
+  deviceName: string
+  platform: string
+  host?: string
+  port?: number
+  lastSeen: number
+  status: 'reachable' | 'offline'
+}
+
 export interface TransferRecord {
   id: number
   device_id: number
@@ -26,9 +37,10 @@ export const useHandoffStore = defineStore('handoff', () => {
   const serviceUptime = ref(0)
   const serviceConnections = ref(0)
   const devices = ref<PairedDevice[]>([])
+  const discoveredPeers = ref<Record<string, DiscoveredPeer>>({})
   const transferHistory = ref<TransferRecord[]>([])
   const sseCleanup = ref<(() => void) | null>(null)
-  const onlineDevices = ref<Record<string, 'online' | 'reachable' | 'offline'>>({})
+  const onlineDevices = ref<Record<string, 'online' | 'offline'>>({})
 
   const isRunning = computed(() => serviceStatus.value === 'running')
 
@@ -49,6 +61,8 @@ export const useHandoffStore = defineStore('handoff', () => {
   async function stopService(): Promise<void> {
     await window.api.handoff.stopService()
     serviceStatus.value = 'stopped'
+    for (const peer of Object.values(discoveredPeers.value)) peer.status = 'offline'
+    for (const deviceId of Object.keys(onlineDevices.value)) onlineDevices.value[deviceId] = 'offline'
   }
 
   async function restartService(): Promise<void> {
@@ -81,7 +95,9 @@ export const useHandoffStore = defineStore('handoff', () => {
   function connectSSE(): void {
     window.api.handoff.connectSSE()
     const clean1 = window.api.handoff.onEvent(({ event, data }) => {
-      if (event === 'ws-connection' || event === 'ws-disconnection') {
+      if (event === 'connected') {
+        void scanDevices()
+      } else if (event === 'ws-connection' || event === 'ws-disconnection') {
         serviceConnections.value = (data as { connected: number }).connected
       } else if (event === 'config:reloaded') {
         fetchDevices()
@@ -97,23 +113,23 @@ export const useHandoffStore = defineStore('handoff', () => {
         onlineDevices.value[deviceId] = 'online'
       } else if (event === 'peer:disconnected') {
         const { deviceId } = data as { deviceId: string }
-        if (onlineDevices.value[deviceId] !== 'reachable') {
-          onlineDevices.value[deviceId] = 'offline'
-        }
+        onlineDevices.value[deviceId] = 'offline'
       } else if (event === 'bonjour:found') {
-        const { deviceId } = data as { deviceId: string }
-        if (onlineDevices.value[deviceId] !== 'online') {
-          onlineDevices.value[deviceId] = 'reachable'
+        const peer = data as Omit<DiscoveredPeer, 'status'>
+        if (peer.discoveryId) {
+          discoveredPeers.value[peer.discoveryId] = { ...peer, status: 'reachable' }
         }
       } else if (event === 'bonjour:lost') {
-        const { deviceId } = data as { deviceId: string }
-        if (onlineDevices.value[deviceId] !== 'online') {
-          onlineDevices.value[deviceId] = 'offline'
-        }
+        const { discoveryId } = data as { discoveryId: string }
+        if (discoveredPeers.value[discoveryId]) discoveredPeers.value[discoveryId].status = 'offline'
       }
     })
     const clean2 = window.api.handoff.onServiceStatusChange(({ status }) => {
       serviceStatus.value = status
+      if (status === 'stopped') {
+        for (const peer of Object.values(discoveredPeers.value)) peer.status = 'offline'
+        for (const deviceId of Object.keys(onlineDevices.value)) onlineDevices.value[deviceId] = 'offline'
+      }
     })
     sseCleanup.value = () => { clean1(); clean2() }
   }
@@ -135,7 +151,7 @@ export const useHandoffStore = defineStore('handoff', () => {
   }
 
   return {
-    serviceStatus, serviceUptime, serviceConnections, devices, transferHistory,
+    serviceStatus, serviceUptime, serviceConnections, devices, discoveredPeers, transferHistory,
     isRunning,
     fetchServiceStatus, startService, stopService, restartService,
     fetchDevices, deleteDevice, generatePairing,
